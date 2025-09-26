@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 
-const BACKEND = 'http://localhost:3001';
+const BACKEND = `http://${window.location.hostname}:3001`;
 
 
 type Mood = 'happy' | 'sad' | 'angry' | 'calm' | 'surprised' | 'neutral';
@@ -35,15 +35,31 @@ export default function App() {
 
 
     const linkSpotify = () => {
-        window.location.href = `${BACKEND}/login`;
+        const returnTo = encodeURIComponent(window.location.origin); // e.g. http://127.0.0.1:5173
+        window.location.assign(`${BACKEND}/login?return_to=${returnTo}`);
     };
 
 
-    // Simple ping to backend `/me` to see if linked (dev heuristic)
+    // Re-check when page is (re)loaded or becomes visible, and if ?linked=1 is present
     useEffect(() => {
-        fetch(`${BACKEND}/me`).then(async r => {
-            if (r.ok) setLinked(true);
-        }).catch(() => { });
+        const check = () => {
+            fetch(`${BACKEND}/me`).then(r => {
+                if (r.ok) setLinked(true);
+            }).catch(() => { });
+        };
+
+        check(); // initial
+        if (new URLSearchParams(window.location.search).get('linked') === '1') {
+            check();
+            // optional: clean the URL
+            const url = new URL(window.location.href);
+            url.searchParams.delete('linked');
+            window.history.replaceState({}, '', url.toString());
+        }
+
+        const onVis = () => { if (document.visibilityState === 'visible') check(); };
+        document.addEventListener('visibilitychange', onVis);
+        return () => document.removeEventListener('visibilitychange', onVis);
     }, []);
 
 
