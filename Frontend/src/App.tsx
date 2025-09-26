@@ -12,6 +12,7 @@ export default function App() {
     const [cameraOn, setCameraOn] = useState(false);
     const [mood, setMood] = useState<Mood>('neutral');
     const [linked, setLinked] = useState(false);
+    const [size, setSize] = useState(25);
 
 
     // Start/stop camera
@@ -38,7 +39,6 @@ export default function App() {
         const returnTo = encodeURIComponent(window.location.origin); // e.g. http://127.0.0.1:5173
         window.location.assign(`${BACKEND}/login?return_to=${returnTo}`);
     };
-
 
     // Re-check when page is (re)loaded or becomes visible, and if ?linked=1 is present
     useEffect(() => {
@@ -67,9 +67,32 @@ export default function App() {
         await fetch(`${BACKEND}/mood`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ label: mood, confidence: 0.9 })
+            body: JSON.stringify({ label: mood, confidence: 0.9, size})
         });
     };
+
+    type PlaylistInfo = { id: string; url: string | null; uri: string; name: string };
+
+    const [playlist, setPlaylist] = useState<PlaylistInfo | null>(null);
+
+    useEffect(() => {
+        const load = async () => {
+            try {
+                // only try if linked
+                const me = await fetch(`${BACKEND}/me`);
+                if (!me.ok) return;
+                const r = await fetch(`${BACKEND}/playlist`);
+                if (r.ok) setPlaylist(await r.json());
+            } catch { }
+        };
+        load();
+
+        // also run after successful `?linked=1` return
+        if (new URLSearchParams(window.location.search).get('linked') === '1') {
+            load();
+        }
+    }, [linked]);
+
 
 
     return (
@@ -118,6 +141,20 @@ export default function App() {
                             <li>Implement playlist upsert logic on backend `/mood`.</li>
                             <li>Return a real `playlistId` from `/playlist` and embed the Web Playback SDK.</li>
                         </ol>
+                    </div>
+
+                    <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+
+                        {playlist?.url && (
+                            <a
+                                href={playlist.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #ccc', textDecoration: 'none' }}
+                            >
+                                Open MoodDJ on Spotify
+                            </a>
+                        )}
                     </div>
                 </div>
             </section>
