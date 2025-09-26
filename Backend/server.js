@@ -47,6 +47,14 @@ const scopes = [
     'playlist-read-private',
 ];
 
+// Tracks we’ve already used per mood (in-memory; resets on restart)
+const SEEN_PER_MOOD = new Map(); // mood -> Set<string>
+function getSeenSet(label) {
+    if (!SEEN_PER_MOOD.has(label)) SEEN_PER_MOOD.set(label, new Set());
+    return SEEN_PER_MOOD.get(label);
+}
+
+
 app.get('/', (_req, res) => res.send('OK: try /login'));
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
@@ -276,6 +284,10 @@ app.post('/mood', async (req, res) => {
         const { id: targetId } = await ensurePlaylistByName('MoodDJ');
         await replacePlaylistWithUris(targetId, pick);
 
+        const seen = getSeenSet(label);
+        pick.forEach(u => seen.add(u));
+
+
         res.json({ ok: true, playlistId: targetId, label, size, replaced: pick.length });
     } catch (e) {
         console.error('POST /mood error:', e);
@@ -290,37 +302,58 @@ app.post('/mood', async (req, res) => {
  */
 app.post('/mood/tick', async (req, res) => {
     try {
-        const label = String(req.body?.label || 'neutral');
+        const label = String(req.body?.label || 'happy'); // locked to happy right now
         const keep = Math.max(1, Math.min(100, Number(req.body?.keep || 25)));
         if (!ALLOWED_MOODS.has(label)) return res.status(400).json({ ok: false, error: 'unsupported mood' });
 
+        // Pull the full source once
         const sourceId = MOOD_SOURCE[label];
         const sourceUris = await getTrackUrisFromPlaylist(sourceId, 800);
         if (!sourceUris.length) throw new Error('No tracks in source playlist');
 
         const { id: targetId } = await ensurePlaylistByName('MoodDJ');
         const current = await getPlaylistUrisOrdered(targetId);
-        const inPlaylist = new Set(current);
+        const seen = getSeenSet(label);
 
-        // find a novel pick
+        // Seed "seen" with whatever is already in the playlist
+        for (const u of current) seen.add(u);
+
+        // Try to find a novel URI
         let chosen = null;
-        for (const uri of shuffle(sourceUris)) {
-            if (!inPlaylist.has(uri)) { chosen = uri; break; }
-        }
-        if (!chosen) {
-            return res.json({ ok: true, playlistId: targetId, keep, added: 0, reason: 'no-novel' });
+        const pool = sourceUris.slice().sort(() => Math.random() - 0.5);
+        for (const uri of pool) {
+            if (!seen.has(uri)) { chosen = uri; break; }
         }
 
+        let recycled = false;
+        if (!chosen) {
+            // We have exhausted the entire source set at least once -> allow recycling
+            if (seen.size >= sourceUris.length) {
+                seen.clear(); // reset and start a fresh pass
+                recycled = true;
+                // pick any (now all are novel relative to the cleared "seen")
+                chosen = pool[0];
+            } else {
+                // If we land here something’s off; bail gracefully
+                return res.json({ ok: true, playlistId: targetId, keep, added: 0, reason: 'no-novel' });
+            }
+        }
+
+        // Add chosen to the end and trim to keep
         let next = current.concat(chosen);
         if (next.length > keep) next = next.slice(next.length - keep);
         await replacePlaylistWithUris(targetId, next);
 
-        res.json({ ok: true, playlistId: targetId, keep, added: 1, chosen });
+        // Mark as seen after adding
+        seen.add(chosen);
+
+        res.json({ ok: true, playlistId: targetId, keep, added: 1, chosen, recycled });
     } catch (e) {
         console.error('POST /mood/tick error:', e);
         res.status(500).json({ ok: false, error: String(e) });
     }
 });
+
 
 app.listen(PORT, () => {
     console.log(`Backend on http://127.0.0.1:${PORT} and http://localhost:${PORT}`);

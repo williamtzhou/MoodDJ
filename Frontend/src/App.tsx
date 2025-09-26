@@ -1,35 +1,40 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useCallback, useState } from 'react';
+import { useEmotion, Mood } from './hooks/useEmotion';
 
 const BACKEND = `http://${window.location.hostname}:3001`;
 
-type Mood = 'happy';
-
-
+// type Mood = 'happy' | 'neutral' | 'sad';
 
 export default function App() {
-    const videoRef = useRef<HTMLVideoElement | null>(null);
+    const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
+    const videoRef = useCallback((el: HTMLVideoElement | null) => { setVideoEl(el); }, []);
     const [cameraOn, setCameraOn] = useState(false);
-    const [mood, setMood] = useState<Mood>('happy');
+    const [mood, setMood] = useState<Mood>('neutral');
     const [linked, setLinked] = useState(false);
     const [size, setSize] = useState(25);
     const [playlist, setPlaylist] = useState<{ id: string; url: string | null; uri: string; name: string } | null>(null);
-
-    // Camera (placeholder for future facial mood recognition)
+    const { mood: detectedMood, scores, ready, running: emoRunning, tracking, faceCount, lastError, start: startEmotion, stop: stopEmotion } =
+        useEmotion(videoEl);
     const toggleCamera = async () => {
         if (!cameraOn) {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-                if (videoRef.current) videoRef.current.srcObject = stream;
+                if (videoEl) {
+                    videoEl.srcObject = stream;
+                    // wait a tick so the <video> gets metadata
+                    setTimeout(() => startEmotion(), 100);
+                }
                 setCameraOn(true);
             } catch {
                 alert('Camera permission denied or unavailable');
             }
         } else {
-            if (videoRef.current?.srcObject) {
-                (videoRef.current.srcObject as MediaStream).getTracks().forEach(t => t.stop());
-                videoRef.current.srcObject = null;
+            if (videoEl?.srcObject) {
+                (videoEl.srcObject as MediaStream).getTracks().forEach(t => t.stop());
+                videoEl.srcObject = null;
             }
             setCameraOn(false);
+            stopEmotion();
         }
     };
 
@@ -71,23 +76,37 @@ export default function App() {
         }
     }, [linked]);
 
+    useEffect(() => {
+        if (!detectedMood) return;
+        // simple debounce / noise guard could go here if needed
+        setMood(detectedMood as Mood);
+    }, [detectedMood]);
+
     // Fill the playlist to `size` from the fixed Spotify playlist for the chosen mood
     const fillPlaylist = async () => {
+        if (mood !== 'happy') {
+            alert(`Only the Happy playlist is wired up right now. Detected: ${mood}`);
+            return;
+        }
         await fetch(`${BACKEND}/mood`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ label: 'happy', size }),
+            body: JSON.stringify({ label: mood, size }),
         });
     };
 
-    // Append one novel track (useful for “live” mood ticks)
     const addOne = async () => {
+        if (mood !== 'happy') {
+            alert(`Only the Happy playlist is wired up right now. Detected: ${mood}`);
+            return;
+        }
         await fetch(`${BACKEND}/mood/tick`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ label: 'happy', keep: size }),
+            body: JSON.stringify({ label: mood, keep: size }),
         });
     };
+
 
     return (
         <div style={{ maxWidth: 900, margin: '2rem auto', fontFamily: 'Inter, system-ui, sans-serif' }}>
@@ -96,6 +115,11 @@ export default function App() {
             <section style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                 <div>
                     <video ref={videoRef} autoPlay playsInline style={{ width: '100%', borderRadius: 12, background: '#111' }} />
+                    <li>Detector: {ready ? 'ready' : 'loading'} {emoRunning ? '(running)' : ''}</li>
+                    <li>Tracking face: {tracking ? `yes (${faceCount})` : 'no'}</li>
+                    <li>Faces seen: {faceCount}</li>
+                    {lastError && <li style={{ color: 'crimson' }}>Err: {lastError}</li>}
+
                     <div style={{ marginTop: 12 }}>
                         <button onClick={toggleCamera}>{cameraOn ? 'Stop Camera' : 'Start Camera'}</button>
                     </div>
@@ -136,10 +160,12 @@ export default function App() {
                         <strong>Status</strong>
                         <ul>
                             <li>Camera: {cameraOn ? 'on' : 'off'}</li>
-                            <li>Current mood: {mood}</li>
+                            <li>Detected mood (camera): {detectedMood}</li>
+                            <li>Current mood (used by app): {mood}</li>
                             <li>Spotify: {linked ? 'linked' : 'not linked'}</li>
                             <li>Playlist size target: {size}</li>
                         </ul>
+
                     </div>
 
                     <div style={{ marginTop: 12 }}>
@@ -153,6 +179,21 @@ export default function App() {
                                 Open MoodDJ on Spotify
                             </a>
                         )}
+                    </div>
+                    <div style={{ marginTop: 8 }}>
+                        <div>Scores:</div>
+                        {(['happy', 'neutral', 'sad'] as Mood[]).map(m => (
+                            <div key={m} style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '2px 0' }}>
+                                <div style={{ width: 70, textTransform: 'capitalize' }}>{m}</div>
+                                <div style={{ flex: 1, height: 8, border: '1px solid #ddd', borderRadius: 4 }}>
+                                    <div style={{
+                                        width: `${Math.round((scores as any)[m] * 100)}%`,
+                                        height: '100%', borderRadius: 4, background: '#888'
+                                    }} />
+                                </div>
+                                <div style={{ width: 48, textAlign: 'right' }}>{((scores as any)[m] * 100).toFixed(0)}%</div>
+                            </div>
+                        ))}
                     </div>
                 </div>
             </section>
