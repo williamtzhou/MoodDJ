@@ -302,11 +302,11 @@ app.post('/mood', async (req, res) => {
  */
 app.post('/mood/tick', async (req, res) => {
     try {
-        const label = String(req.body?.label || 'happy'); // locked to happy right now
+        const label = String(req.body?.label || 'happy');
         const keep = Math.max(1, Math.min(100, Number(req.body?.keep || 25)));
+        const count = Math.max(1, Math.min(5, Number(req.body?.count || 1)));
         if (!ALLOWED_MOODS.has(label)) return res.status(400).json({ ok: false, error: 'unsupported mood' });
 
-        // Pull the full source once
         const sourceId = MOOD_SOURCE[label];
         const sourceUris = await getTrackUrisFromPlaylist(sourceId, 800);
         if (!sourceUris.length) throw new Error('No tracks in source playlist');
@@ -314,45 +314,52 @@ app.post('/mood/tick', async (req, res) => {
         const { id: targetId } = await ensurePlaylistByName('MoodDJ');
         const current = await getPlaylistUrisOrdered(targetId);
         const seen = getSeenSet(label);
-
-        // Seed "seen" with whatever is already in the playlist
         for (const u of current) seen.add(u);
 
-        // Try to find a novel URI
-        let chosen = null;
         const pool = sourceUris.slice().sort(() => Math.random() - 0.5);
-        for (const uri of pool) {
-            if (!seen.has(uri)) { chosen = uri; break; }
-        }
+        const inPlaylist = new Set(current);
+        const picks = [];
 
-        let recycled = false;
-        if (!chosen) {
-            // We have exhausted the entire source set at least once -> allow recycling
-            if (seen.size >= sourceUris.length) {
-                seen.clear(); // reset and start a fresh pass
-                recycled = true;
-                // pick any (now all are novel relative to the cleared "seen")
-                chosen = pool[0];
+        // Select up to N novel tracks; recycle only after a full pass
+        for (let i = 0; i < count; i++) {
+            let chosen = null;
+
+            for (const uri of pool) {
+                if (!seen.has(uri) && !inPlaylist.has(uri)) { chosen = uri; break; }
+            }
+
+            if (!chosen) {
+                // exhausted → recycle: reset seen and try again once
+                if (seen.size >= sourceUris.length) seen.clear();
+                for (const uri of pool) {
+                    if (!seen.has(uri) && !inPlaylist.has(uri)) { chosen = uri; break; }
+                }
+            }
+
+            if (chosen) {
+                picks.push(chosen);
+                seen.add(chosen);
+                inPlaylist.add(chosen);
             } else {
-                // If we land here something’s off; bail gracefully
-                return res.json({ ok: true, playlistId: targetId, keep, added: 0, reason: 'no-novel' });
+                break; // nothing else to add
             }
         }
 
-        // Add chosen to the end and trim to keep
-        let next = current.concat(chosen);
+        if (picks.length === 0) {
+            return res.json({ ok: true, playlistId: targetId, keep, added: 0, reason: 'no-picks' });
+        }
+
+        let next = current.concat(picks);
         if (next.length > keep) next = next.slice(next.length - keep);
         await replacePlaylistWithUris(targetId, next);
 
-        // Mark as seen after adding
-        seen.add(chosen);
-
-        res.json({ ok: true, playlistId: targetId, keep, added: 1, chosen, recycled });
+        res.json({ ok: true, playlistId: targetId, keep, added: picks.length, picks });
     } catch (e) {
         console.error('POST /mood/tick error:', e);
         res.status(500).json({ ok: false, error: String(e) });
     }
 });
+
 
 
 app.listen(PORT, () => {
