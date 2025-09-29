@@ -22,18 +22,7 @@ type Return = {
     stop: () => void;
 };
 
-const MP_URL =
-    'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619';
-
-const det = await faceLandmarksDetection.createDetector(
-    faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
-    {
-        runtime: 'mediapipe',
-        refineLandmarks: true,
-        maxFaces: 1,
-        solutionPath: MP_URL, // must point to the directory that contains face_mesh.js
-    }
-);
+const MP_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619';
 
 function scoreFromKeypoints(_kps: any): { mood: Mood; scores: Scores } {
     return { mood: 'neutral', scores: { happy: 0.33, neutral: 0.34, sad: 0.33 } };
@@ -59,11 +48,11 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
     const clearCalibration = () => { };
     const swapNeutralSad = () => { };
 
-    // Create MediaPipe detector (no TFJS/WASM)
+    // Initialize MediaPipe detector inside an effect (no top-level await).
     useEffect(() => {
         let cancelled = false;
 
-        async function init() {
+        (async () => {
             try {
                 const det = await faceLandmarksDetection.createDetector(
                     faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
@@ -71,9 +60,7 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
                         runtime: 'mediapipe',
                         refineLandmarks: true,
                         maxFaces: 1,
-                        // stable, widely-used FaceMesh assets
-                        solutionPath:
-                            'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619',
+                        solutionPath: MP_URL,
                     }
                 );
                 if (cancelled) return;
@@ -87,12 +74,10 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
                     setReady(false);
                 }
             }
-        }
+        })();
 
-        init();
         return () => {
             cancelled = true;
-            // best-effort dispose
             try { detectorRef.current?.dispose?.(); } catch { }
             detectorRef.current = null;
         };
@@ -134,10 +119,7 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
         if (!running || !videoEl || !detectorRef.current) return;
 
         try {
-            // pass the raw video element; do not flip in the model
-            const faces = await detectorRef.current.estimateFaces(videoEl, {
-                flipHorizontal: false,
-            });
+            const faces = await detectorRef.current.estimateFaces(videoEl, { flipHorizontal: false });
 
             const count = faces?.length || 0;
             setFaceCount(count);
@@ -162,7 +144,6 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
         rafRef.current = requestAnimationFrame(loop);
     }
 
-    // re-kick when video is playable
     useEffect(() => {
         if (!running) return;
         if (!videoEl || !detectorRef.current) return;
