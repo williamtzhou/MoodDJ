@@ -25,7 +25,7 @@ const BACKEND =
     (import.meta as any).env?.VITE_BACKEND_URL ??
     `${location.protocol}//${location.hostname}:3001`;
 
-const MP_BASE = `${BACKEND}/mp`;
+const MP_BASE = `${import.meta.env.BASE_URL || '/'}mediapipe`;
 
 function scoreFromLandmarks(_pts: any): { mood: Mood; scores: Scores } {
     return { mood: 'neutral', scores: { happy: 0.33, neutral: 0.34, sad: 0.33 } };
@@ -33,13 +33,11 @@ function scoreFromLandmarks(_pts: any): { mood: Mood; scores: Scores } {
 
 function loadScriptOnce(src: string): Promise<void> {
     return new Promise((resolve, reject) => {
-        const existing = document.querySelector<HTMLScriptElement>(`script[data-src="${src}"]`);
-        if (existing && (existing as any)._loaded) return resolve();
-
+        const ex = document.querySelector<HTMLScriptElement>(`script[data-src="${src}"]`);
+        if (ex && (ex as any)._loaded) return resolve();
         const s = document.createElement('script');
         s.src = src;
-        s.async = false; // preserve load order
-        s.defer = false;
+        s.async = false; s.defer = false; // preserve order
         s.setAttribute('data-src', src);
         s.onload = () => { (s as any)._loaded = true; resolve(); };
         s.onerror = () => reject(new Error(`Failed to load ${src}`));
@@ -81,7 +79,6 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
         (async () => {
             try {
                 const FaceMeshCtor = await ensureMediaPipe();
-
                 const fm = new FaceMeshCtor({
                     locateFile: (f: string) => `${MP_BASE}/${f}`,
                 });
