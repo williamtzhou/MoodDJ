@@ -17,7 +17,7 @@ type Return = {
 
     ready: boolean;
     faceCount: number;
-    captureCalibration: (which: 'happy' | 'neutral' | 'sad') => void;
+    captureCalibration: (w: 'happy' | 'neutral' | 'sad') => void;
     clearCalibration: () => void;
     swapNeutralSad: () => void;
 
@@ -28,7 +28,6 @@ type Return = {
 const DETECT_W = 320;
 const DETECT_H = 240;
 
-// basic scoring; replace with tuned version if needed
 function scoreFromKeypoints(_kps: any): { mood: Mood; scores: Scores } {
     return { mood: 'neutral', scores: { happy: 0.33, neutral: 0.34, sad: 0.33 } };
 }
@@ -47,36 +46,32 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
 
     const detectorRef = useRef<faceLandmarksDetection.FaceLandmarksDetector | null>(null);
     const rafRef = useRef<number | null>(null);
-    const zeroFaceFramesRef = useRef(0);
+    const missFramesRef = useRef(0);
 
-    // offscreen canvas for downsampled frames
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
 
-    // optional calibration placeholders (no-op to satisfy App.tsx; can be extended later)
-    const captureCalibration = (_: 'happy' | 'neutral' | 'sad') => { /* no-op */ };
-    const clearCalibration = () => { /* no-op */ };
-    const swapNeutralSad = () => { /* no-op */ };
+    const captureCalibration = (_: 'happy' | 'neutral' | 'sad') => { };
+    const clearCalibration = () => { };
+    const swapNeutralSad = () => { };
 
-    // init offscreen canvas
     useEffect(() => {
         if (!canvasRef.current) {
-            try {
-                const c = document.createElement('canvas');
-                c.width = DETECT_W; c.height = DETECT_H;
-                const ctx = c.getContext('2d', { willReadFrequently: true });
-                if (ctx) { canvasRef.current = c; ctxRef.current = ctx; }
-            } catch (e: any) {
-                setLastError('canvas init failed: ' + (e?.message || String(e)));
+            const c = document.createElement('canvas');
+            c.width = DETECT_W; c.height = DETECT_H;
+            const ctx = c.getContext('2d', { willReadFrequently: true });
+            if (!ctx) {
+                setLastError('canvas context unavailable');
+            } else {
+                canvasRef.current = c;
+                ctxRef.current = ctx;
             }
         }
     }, []);
 
-    // init TFJS (WASM only) and detector
     useEffect(() => {
         let cancelled = false;
-
-        async function init() {
+        (async () => {
             try {
                 setWasmPaths('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@4.22.0/dist/');
                 try { tf.env().set('WASM_HAS_SIMD_SUPPORT', false as any); } catch { }
@@ -99,10 +94,9 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
 
                 detectorRef.current = det;
                 setRuntime('tfjs');
-                setLastError(null);
                 setReady(true);
-            } catch (e: any) {
-                if (cancelled) return;
+                setLastError(null);
+            } catch (e1: any) {
                 try {
                     setWasmPaths('https://unpkg.com/@tensorflow/tfjs-backend-wasm@4.22.0/dist/');
                     await tf.setBackend('wasm');
@@ -111,29 +105,32 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
                         faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
                         { runtime: 'tfjs', refineLandmarks: true, maxFaces: 1 }
                     );
-                    if (cancelled) return;
-                    detectorRef.current = det;
-                    setRuntime('tfjs');
-                    setLastError(null);
-                    setReady(true);
+                    if (!cancelled) {
+                        detectorRef.current = det;
+                        setRuntime('tfjs');
+                        setReady(true);
+                        setLastError(null);
+                    }
                 } catch (e2: any) {
-                    setLastError('init failed (wasm): ' + (e2?.message || String(e2)));
-                    setReady(false);
+                    if (!cancelled) {
+                        setLastError('init failed: ' + (e2?.message || String(e1)));
+                        setReady(false);
+                    }
                 }
             }
-        }
-
-        init();
+        })();
         return () => { cancelled = true; };
     }, []);
 
-    const drawToOffscreen = (vid: HTMLVideoElement): HTMLCanvasElement | null => {
+    const drawFrame = (vid: HTMLVideoElement): HTMLCanvasElement | null => {
         const c = canvasRef.current, ctx = ctxRef.current;
         if (!c || !ctx) return null;
         try {
             ctx.drawImage(vid, 0, 0, c.width, c.height);
             return c;
-        } catch { return null; }
+        } catch {
+            return null;
+        }
     };
 
     function stop() {
@@ -152,16 +149,16 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
         }
         if (running) return;
         setRunning(true);
-        zeroFaceFramesRef.current = 0;
+        missFramesRef.current = 0;
         kickOff();
     }
 
     function kickOff() {
         if (!running || !videoEl || !detectorRef.current) return;
-        const vw = (videoEl as HTMLVideoElement).videoWidth || 0;
-        const vh = (videoEl as HTMLVideoElement).videoHeight || 0;
+        const vw = videoEl.videoWidth || 0;
+        const vh = videoEl.videoHeight || 0;
         if (vw === 0 || vh === 0) {
-            (videoEl as HTMLVideoElement).play?.().catch(() => { });
+            videoEl.play?.().catch(() => { });
             rafRef.current = requestAnimationFrame(kickOff);
             return;
         }
@@ -172,24 +169,13 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
         if (!running || !videoEl || !detectorRef.current) return;
 
         try {
-            const inputCanvas = drawToOffscreen(videoEl);
-            if (!inputCanvas) {
+            const input = drawFrame(videoEl);
+            if (!input) {
                 rafRef.current = requestAnimationFrame(loop);
                 return;
             }
-            const inputTensor = tf.tidy(() =>
-                tf.browser.fromPixels(inputCanvas).toFloat()
-            );
 
-            let faces;
-            try {
-                faces = await detectorRef.current.estimateFaces(
-                    inputTensor as unknown as tf.Tensor3D,
-                    { flipHorizontal: false }
-                );
-            } finally {
-                inputTensor.dispose();
-            }
+            const faces = await detectorRef.current.estimateFaces(input, { flipHorizontal: false });
 
             const count = faces?.length || 0;
             setFaceCount(count);
@@ -199,24 +185,21 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
                 const r = scoreFromKeypoints(faces[0].keypoints as any);
                 setMood(r.mood);
                 setScores(r.scores);
-                zeroFaceFramesRef.current = 0;
+                missFramesRef.current = 0;
             } else {
-                zeroFaceFramesRef.current += 1;
-                if (zeroFaceFramesRef.current > 10) {
+                missFramesRef.current += 1;
+                if (missFramesRef.current > 10) {
                     setMood('neutral');
                     setScores({ happy: 0.33, neutral: 0.34, sad: 0.33 });
                 }
             }
         } catch (e: any) {
-            if (!String(e?.message || e).includes('Aborted')) {
-                setLastError('loop error: ' + (e?.message || String(e)));
-            }
+            setLastError('loop error: ' + (e?.message || String(e)));
         }
 
         rafRef.current = requestAnimationFrame(loop);
     }
 
-    // re-kick when video is ready
     useEffect(() => {
         if (!running) return;
         if (!videoEl || !detectorRef.current) return;
