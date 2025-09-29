@@ -1,3 +1,4 @@
+// Frontend/src/hooks/useEmotion.ts
 import { useEffect, useRef, useState } from 'react';
 
 export type Mood = 'happy' | 'neutral' | 'sad';
@@ -10,26 +11,64 @@ type Return = {
     tracking: boolean;
     runtime: 'tfjs' | 'mediapipe' | null;
     lastError: string | null;
+
     ready: boolean;
     faceCount: number;
     captureCalibration: (w: 'happy' | 'neutral' | 'sad') => void;
     clearCalibration: () => void;
     swapNeutralSad: () => void;
+
     start: () => void;
     stop: () => void;
 };
+
+// Stable MediaPipe build; all assets live under this directory.
+const MP_BASE = 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1646424915';
 
 function scoreFromLandmarks(_pts: any): { mood: Mood; scores: Scores } {
     return { mood: 'neutral', scores: { happy: 0.33, neutral: 0.34, sad: 0.33 } };
 }
 
+function loadScriptOnce(src: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+        // Already loaded?
+        const existing = document.querySelector<HTMLScriptElement>(`script[data-src="${src}"]`);
+        if (existing && (existing as any)._loaded) { resolve(); return; }
+
+        const s = document.createElement('script');
+        s.src = src;
+        s.async = false; // preserve order
+        s.defer = false;
+        s.setAttribute('data-src', src);
+        s.onload = () => { (s as any)._loaded = true; resolve(); };
+        s.onerror = () => reject(new Error(`Failed to load ${src}`));
+        document.head.appendChild(s);
+    });
+}
+
+async function ensureMediaPipe(): Promise<any> {
+    // If FaceMesh is already present, nothing to do.
+    if ((window as any).FaceMesh) return (window as any).FaceMesh;
+
+    // Load in strict order so the asset loader can register properly.
+    await loadScriptOnce(`${MP_BASE}/face_mesh.js`);
+    await loadScriptOnce(`${MP_BASE}/face_mesh_solution_packed_assets_loader.js`);
+    await loadScriptOnce(`${MP_BASE}/face_mesh_solution_simd_wasm_bin.js`);
+
+    const FaceMeshCtor = (window as any).FaceMesh;
+    if (!FaceMeshCtor) throw new Error('FaceMesh global not loaded after scripts');
+    return FaceMeshCtor;
+}
+
 export function useEmotion(videoEl: HTMLVideoElement | null): Return {
     const [mood, setMood] = useState<Mood>('neutral');
     const [scores, setScores] = useState<Scores>({ happy: 0.33, neutral: 0.34, sad: 0.33 });
+
     const [running, setRunning] = useState(false);
     const [tracking, setTracking] = useState(false);
     const [runtime, setRuntime] = useState<'tfjs' | 'mediapipe' | null>(null);
     const [lastError, setLastError] = useState<string | null>(null);
+
     const [ready, setReady] = useState(false);
     const [faceCount, setFaceCount] = useState(0);
 
@@ -41,15 +80,17 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
     const clearCalibration = () => { };
     const swapNeutralSad = () => { };
 
+    // Initialize MediaPipe FaceMesh directly (no TFJS)
     useEffect(() => {
         let cancelled = false;
+
         (async () => {
             try {
-                const FaceMeshCtor = (window as any).FaceMesh;
-                if (!FaceMeshCtor) throw new Error('FaceMesh global not loaded');
+                const FaceMeshCtor = await ensureMediaPipe();
 
+                // Route any additional files (e.g., .wasm) back to the same CDN folder.
                 const fm = new FaceMeshCtor({
-                    // no locateFile; asset loaders are already on the page
+                    locateFile: (f: string) => `${MP_BASE}/${f}`,
                 });
 
                 fm.setOptions({
@@ -64,6 +105,7 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
                     setFaceCount(faces.length);
                     const has = faces.length > 0 && faces[0]?.length;
                     setTracking(Boolean(has));
+
                     if (has) {
                         const r = scoreFromLandmarks(faces[0]);
                         setMood(r.mood);
@@ -90,6 +132,7 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
                 }
             }
         })();
+
         return () => {
             cancelled = true;
             try { mpRef.current?.close?.(); } catch { }
@@ -160,11 +203,13 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
         tracking,
         runtime,
         lastError,
+
         ready,
         faceCount,
         captureCalibration,
         clearCalibration,
         swapNeutralSad,
+
         start,
         stop,
     };
