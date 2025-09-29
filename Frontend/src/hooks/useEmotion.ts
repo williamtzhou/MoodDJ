@@ -22,6 +22,19 @@ type Return = {
     stop: () => void;
 };
 
+const MP_URL =
+    'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619';
+
+const det = await faceLandmarksDetection.createDetector(
+    faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
+    {
+        runtime: 'mediapipe',
+        refineLandmarks: true,
+        maxFaces: 1,
+        solutionPath: MP_URL, // must point to the directory that contains face_mesh.js
+    }
+);
+
 function scoreFromKeypoints(_kps: any): { mood: Mood; scores: Scores } {
     return { mood: 'neutral', scores: { happy: 0.33, neutral: 0.34, sad: 0.33 } };
 }
