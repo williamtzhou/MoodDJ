@@ -56,79 +56,34 @@ export function useEmotion(videoEl: HTMLVideoElement | null) {
     useEffect(() => {
         let cancelled = false;
 
-        async function createTFJSDetector(backend: 'webgl' | 'wasm') {
-            await tf.ready();
-            try { await tf.setBackend(backend); } catch { }
-            return await faceLandmarksDetection.createDetector(
-                faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
-                { runtime: 'tfjs', refineLandmarks: true, maxFaces: 1 }
-            );
-        }
-
-        function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
-            return new Promise((resolve, reject) => {
-                const t = setTimeout(() => reject(new Error(`timeout: ${label}`)), ms);
-                p.then(v => { clearTimeout(t); resolve(v); }, e => { clearTimeout(t); reject(e); });
-            });
-        }
-
-        async function initDetector() {
-            try {
-                setLastError('init: tfjs(webgl)…');
-                const tfjsWebgl = await withTimeout(createTFJSDetector('webgl'), 3000, 'tfjs webgl');
-                if (cancelled) return;
-                detectorRef.current = tfjsWebgl;
-                setRuntime('tfjs');
-                setReady(true);
-                setLastError(null);
-                zeroFaceFramesRef.current = 0;
-                return;
-            } catch (e: any) {
-                if (cancelled) return;
-                setLastError(`init fallback: ${String(e?.message || e)}`);
-            }
-
+        async function initMP() {
             try {
                 setLastError('init: mediapipe wasm…');
-                const mp = await faceLandmarksDetection.createDetector(
+                const det = await faceLandmarksDetection.createDetector(
                     faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
                     {
                         runtime: 'mediapipe',
                         refineLandmarks: true,
                         maxFaces: 1,
-                        // pin a version to avoid CDN metadata hiccups
+                        // Pin version; avoids flaky CDN metadata + prefers non-SIMD path under non-isolated pages
                         solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4',
                     }
                 );
                 if (cancelled) return;
-                detectorRef.current = mp;
+                detectorRef.current = det;
                 setRuntime('mediapipe');
                 setReady(true);
                 setLastError(null);
                 zeroFaceFramesRef.current = 0;
-                return;
-            } catch (e: any) {
-                if (cancelled) return;
-                setLastError(`init fallback2: mediapipe failed: ${String(e?.message || e)}`);
-            }
-
-            try {
-                setLastError('init: tfjs(wasm) final attempt…');
-                const tfjsWasm = await createTFJSDetector('wasm');
-                if (cancelled) return;
-                detectorRef.current = tfjsWasm;
-                setRuntime('tfjs');
-                setReady(true);
-                setLastError(null);
-                zeroFaceFramesRef.current = 0;
-                return;
             } catch (e: any) {
                 if (cancelled) return;
                 setLastError(`init failed: ${String(e?.message || e)}`);
+                // Retry in a bit (CDN hiccup/network)
+                setTimeout(() => { if (!cancelled) initMP(); }, 1500);
             }
         }
 
-        initDetector();
+        initMP();
         return () => { cancelled = true; stop(); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -138,14 +93,10 @@ export function useEmotion(videoEl: HTMLVideoElement | null) {
     useEffect(() => {
         if (!running || !videoEl) return;
         const onReady = () => kickOff();
-
         videoEl.addEventListener('loadedmetadata', onReady);
         videoEl.addEventListener('canplay', onReady);
-
-        // nudge playback so dimensions populate
-        videoEl.play?.().catch(() => { });
+        // edge case: already ready
         if (videoEl.readyState >= 2) kickOff();
-
         return () => {
             videoEl.removeEventListener('loadedmetadata', onReady);
             videoEl.removeEventListener('canplay', onReady);
@@ -180,15 +131,16 @@ export function useEmotion(videoEl: HTMLVideoElement | null) {
 
     function kickOff() {
         if (!running || !videoEl || !detectorRef.current) return;
-        const vw = (videoEl as HTMLVideoElement).videoWidth || 0;
-        const vh = (videoEl as HTMLVideoElement).videoHeight || 0;
+        const vw = videoEl.videoWidth || 0, vh = videoEl.videoHeight || 0;
         if (vw === 0 || vh === 0) {
+            // nudge the element so metadata populates on some browsers
             videoEl.play?.().catch(() => { });
             rafRef.current = requestAnimationFrame(kickOff);
             return;
         }
         loop();
     }
+
 
 
     const loop = async () => {
