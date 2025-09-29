@@ -2,23 +2,22 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import fetch from 'node-fetch';
+import fs from 'fs';
+
+const TOKENS_PATH = process.env.TOKENS_PATH || './tokens.json';
 
 const app = express();
 app.use(express.json());
-app.use(
-    cors({
-        origin: ['http://127.0.0.1:5173', 'http://localhost:5173'],
-        credentials: true,
-    })
-);
 
 const {
     SPOTIFY_CLIENT_ID,
     SPOTIFY_CLIENT_SECRET,
     REDIRECT_URI, // e.g. http://127.0.0.1:3001/callback  (MUST match your Spotify app)
-    FRONTEND_URL, // e.g. http://localhost:5173
-    PORT = 3001,
 } = process.env;
+
+const PORT = process.env.PORT || 3001;
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+app.use(cors({ origin: [FRONTEND_URL], credentials: true }));
 
 if (!FRONTEND_URL) {
     console.warn('⚠️ FRONTEND_URL missing in .env (e.g., http://localhost:5173)');
@@ -28,9 +27,9 @@ if (!FRONTEND_URL) {
  * Mood → Spotify editorial playlist IDs (from your links)
  * ---------------------------------------------------------------- */
 const MOOD_SOURCE = {
-  happy:   '6QfDUw2zL7VwN3MPU7crYl', // your Happy (already working)
-  sad:     '6XNevehk5YztKwjOpcqv2l', // NEW: Sad
-  neutral: '3PBcfhjKPx7z4KcFQEiMia', // NEW: Chill/Neutral
+    happy: '6QfDUw2zL7VwN3MPU7crYl', // your Happy (already working)
+    sad: '6XNevehk5YztKwjOpcqv2l', // NEW: Sad
+    neutral: '3PBcfhjKPx7z4KcFQEiMia', // NEW: Chill/Neutral
 };
 
 // Keep ALLOWED_MOODS in sync:
@@ -41,7 +40,7 @@ const ALLOWED_MOODS = new Set(Object.keys(MOOD_SOURCE));
  * Minimal auth/token plumbing
  * ---------------------------------------------------------------- */
 const stateStore = new Map();
-let tokenStore = { access_token: null, refresh_token: null, expires_at: 0 };
+const tokenStore = loadTokens();
 
 const scopes = [
     'user-read-email',
@@ -58,56 +57,68 @@ function getSeenSet(label) {
     return SEEN_PER_MOOD.get(label);
 }
 
+function loadTokens() {
+    try { return JSON.parse(fs.readFileSync(TOKENS_PATH, 'utf8')); } catch { return {}; }
+}
+function saveTokens(obj) {
+    try { fs.writeFileSync(TOKENS_PATH, JSON.stringify(obj, null, 2)); } catch { }
+}
 
-app.get('/', (_req, res) => res.send('OK: try /login'));
-app.get('/health', (_req, res) => res.json({ ok: true }));
+async function setTokens({ access_token, refresh_token, expires_at }) {
+    tokenStore.access_token = access_token;
+    if (refresh_token) tokenStore.refresh_token = refresh_token;
+    tokenStore.expires_at = expires_at;
+    saveTokens(tokenStore);
+}
+
+
+app.get('/', (_req, res) => {
+    res.json({ ok: true, tip: 'try /login' });
+});
+
+app.get('/health', (_req, res) => res.json({ ok: true, service: 'mood-dj-backend' }));
 
 app.get('/login', (req, res) => {
-    const state = Math.random().toString(36).slice(2);
-    const raw = Array.isArray(req.query.return_to) ? req.query.return_to[0] : req.query.return_to;
-    const return_to = raw ? decodeURIComponent(String(raw)) : String(FRONTEND_URL || 'http://localhost:5173');
-    stateStore.set(state, return_to);
-
-    const url = new URL('https://accounts.spotify.com/authorize');
-    url.searchParams.set('response_type', 'code');
-    url.searchParams.set('client_id', SPOTIFY_CLIENT_ID);
-    url.searchParams.set('scope', scopes.join(' '));
-    url.searchParams.set('redirect_uri', REDIRECT_URI);
-    url.searchParams.set('state', state);
-    url.searchParams.set('show_dialog', 'true');
-
-    res.redirect(302, url.toString());
+    const return_to = req.query.return_to || process.env.FRONTEND_URL;
+    const params = new URLSearchParams({
+        response_type: 'code',
+        client_id: process.env.SPOTIFY_CLIENT_ID,
+        scope: 'user-read-email playlist-modify-public playlist-modify-private',
+        redirect_uri: process.env.REDIRECT_URI, // e.g. https://mooddj.onrender.com/callback
+        state: Math.random().toString(36).slice(2),
+    });
+    res.redirect(`https://accounts.spotify.com/authorize?${params.toString()}`);
 });
 
 app.get('/callback', async (req, res) => {
-    const { code, state } = req.query;
+    const code = req.query.code;
     if (!code) return res.status(400).send('Missing code');
-    const return_to = stateStore.get(state);
-    if (!return_to) return res.status(400).send('Invalid state');
-    stateStore.delete(state);
 
     const body = new URLSearchParams({
         grant_type: 'authorization_code',
         code,
-        redirect_uri: REDIRECT_URI,
-        client_id: SPOTIFY_CLIENT_ID,
-        client_secret: SPOTIFY_CLIENT_SECRET,
+        redirect_uri: process.env.REDIRECT_URI,
+        client_id: process.env.SPOTIFY_CLIENT_ID,
+        client_secret: process.env.SPOTIFY_CLIENT_SECRET,
     });
+
     const r = await fetch('https://accounts.spotify.com/api/token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body,
     });
     const data = await r.json();
-    if (!r.ok) return res.status(400).json(data);
+    if (!r.ok) return res.status(500).json(data);
 
-    tokenStore.access_token = data.access_token;
-    tokenStore.refresh_token = data.refresh_token ?? tokenStore.refresh_token;
-    tokenStore.expires_at = Date.now() + (data.expires_in * 1000 - 10_000);
+    const expires_at = Date.now() + (data.expires_in * 1000) - 10_000;
+    await setTokens({
+        access_token: data.access_token,
+        refresh_token: data.refresh_token, // may be undefined on re-consent; setTokens keeps old
+        expires_at,
+    });
 
-    const redirect = new URL(return_to);
-    redirect.searchParams.set('linked', '1');
-    res.redirect(redirect.toString());
+    const return_to = (req.query.return_to || process.env.FRONTEND_URL || '').replace(/\/$/, '');
+    res.redirect(`${return_to}/?linked=1`);
 });
 
 async function ensureAccessToken() {
@@ -128,8 +139,11 @@ async function ensureAccessToken() {
     });
     const data = await r.json();
     if (!r.ok) throw new Error('Refresh failed: ' + JSON.stringify(data));
-    tokenStore.access_token = data.access_token;
-    tokenStore.expires_at = Date.now() + (data.expires_in * 1000 - 10_000);
+    await setTokens({
+        access_token: data.access_token,
+        refresh_token: tokenStore.refresh_token, // keep existing unless Spotify returns a new one
+        expires_at: Date.now() + (data.expires_in * 1000) - 10_000,
+    });
     return tokenStore.access_token;
 }
 
