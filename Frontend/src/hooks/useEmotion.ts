@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import * as faceLandmarksDetection from '@tensorflow-models/face-landmarks-detection';
 
 export type Mood = 'happy' | 'neutral' | 'sad';
 type Scores = { happy: number; neutral: number; sad: number };
@@ -22,9 +21,9 @@ type Return = {
     stop: () => void;
 };
 
-const MP_URL = 'https://unpkg.com/@mediapipe/face_mesh@0.4.1633559619';
+const MP_URL = 'https://unpkg.com/@mediapipe/face_mesh@0.4.1646424915';
 
-function scoreFromKeypoints(_kps: any): { mood: Mood; scores: Scores } {
+function scoreFromLandmarks(_pts: any): { mood: Mood; scores: Scores } {
     return { mood: 'neutral', scores: { happy: 0.33, neutral: 0.34, sad: 0.33 } };
 }
 
@@ -40,7 +39,7 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
     const [ready, setReady] = useState(false);
     const [faceCount, setFaceCount] = useState(0);
 
-    const detectorRef = useRef<faceLandmarksDetection.FaceLandmarksDetector | null>(null);
+    const mpRef = useRef<any | null>(null);       // MediaPipe FaceMesh instance
     const rafRef = useRef<number | null>(null);
     const missFramesRef = useRef(0);
 
@@ -48,29 +47,56 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
     const clearCalibration = () => { };
     const swapNeutralSad = () => { };
 
-    // Initialize MediaPipe detector inside an effect (no top-level await).
+    // Init MediaPipe FaceMesh (no TFJS)
     useEffect(() => {
         let cancelled = false;
 
         (async () => {
             try {
-                const det = await faceLandmarksDetection.createDetector(
-                    faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
-                    {
-                        runtime: 'mediapipe',
-                        refineLandmarks: true,
-                        maxFaces: 1,
-                        solutionPath: MP_URL,
+                const FaceMeshCtor = (window as any).FaceMesh;
+                if (!FaceMeshCtor) {
+                    throw new Error('global FaceMesh not loaded');
+                }
+
+                const fm = new FaceMeshCtor({
+                    locateFile: (f: string) => `${MP_URL}/${f}`,
+                });
+
+                fm.setOptions({
+                    maxNumFaces: 1,
+                    refineLandmarks: true,
+                    minDetectionConfidence: 0.5,
+                    minTrackingConfidence: 0.5,
+                });
+
+                fm.onResults((res: any) => {
+                    const faces = res.multiFaceLandmarks || [];
+                    setFaceCount(faces.length);
+                    const has = faces.length > 0 && faces[0]?.length;
+                    setTracking(Boolean(has));
+
+                    if (has) {
+                        const r = scoreFromLandmarks(faces[0]);
+                        setMood(r.mood);
+                        setScores(r.scores);
+                        missFramesRef.current = 0;
+                    } else {
+                        missFramesRef.current += 1;
+                        if (missFramesRef.current > 10) {
+                            setMood('neutral');
+                            setScores({ happy: 0.33, neutral: 0.34, sad: 0.33 });
+                        }
                     }
-                );
+                });
+
                 if (cancelled) return;
-                detectorRef.current = det;
+                mpRef.current = fm;
                 setRuntime('mediapipe');
                 setReady(true);
                 setLastError(null);
             } catch (e: any) {
                 if (!cancelled) {
-                    setLastError('init failed (mediapipe): ' + (e?.message || String(e)));
+                    setLastError('init failed (mediapipe direct): ' + (e?.message || String(e)));
                     setReady(false);
                 }
             }
@@ -78,8 +104,8 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
 
         return () => {
             cancelled = true;
-            try { detectorRef.current?.dispose?.(); } catch { }
-            detectorRef.current = null;
+            try { mpRef.current?.close?.(); } catch { }
+            mpRef.current = null;
         };
     }, []);
 
@@ -93,7 +119,7 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
     }
 
     function start() {
-        if (!videoEl || !detectorRef.current) {
+        if (!videoEl || !mpRef.current) {
             setLastError('detector/video not ready');
             return;
         }
@@ -104,7 +130,7 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
     }
 
     function kickOff() {
-        if (!running || !videoEl || !detectorRef.current) return;
+        if (!running || !videoEl || !mpRef.current) return;
         const vw = videoEl.videoWidth || 0;
         const vh = videoEl.videoHeight || 0;
         if (vw === 0 || vh === 0) {
@@ -116,27 +142,11 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
     }
 
     async function loop() {
-        if (!running || !videoEl || !detectorRef.current) return;
+        if (!running || !videoEl || !mpRef.current) return;
 
         try {
-            const faces = await detectorRef.current.estimateFaces(videoEl, { flipHorizontal: false });
-
-            const count = faces?.length || 0;
-            setFaceCount(count);
-            setTracking(count > 0);
-
-            if (count > 0 && faces[0]?.keypoints?.length) {
-                const r = scoreFromKeypoints(faces[0].keypoints as any);
-                setMood(r.mood);
-                setScores(r.scores);
-                missFramesRef.current = 0;
-            } else {
-                missFramesRef.current += 1;
-                if (missFramesRef.current > 10) {
-                    setMood('neutral');
-                    setScores({ happy: 0.33, neutral: 0.34, sad: 0.33 });
-                }
-            }
+            // MediaPipe expects await send({image})
+            await mpRef.current.send({ image: videoEl });
         } catch (e: any) {
             setLastError('loop error: ' + (e?.message || String(e)));
         }
@@ -146,7 +156,7 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
 
     useEffect(() => {
         if (!running) return;
-        if (!videoEl || !detectorRef.current) return;
+        if (!videoEl || !mpRef.current) return;
 
         const onReady = () => kickOff();
         videoEl.addEventListener('loadedmetadata', onReady);
@@ -157,7 +167,7 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
             videoEl.removeEventListener('canplay', onReady);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [videoEl, running, detectorRef.current]);
+    }, [videoEl, running, mpRef.current]);
 
     return {
         mood,
