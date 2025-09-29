@@ -22,15 +22,20 @@ type Calib = {
     sad?: Features;
 };
 
-const MODEL_URL = 'https://justadudewhohacks.github.io/face-api.js/models';
+const FACEAPI_MODELS = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights';
 
 const CALIB_KEY = 'mooddj_calib_v2';
 
+
 export async function initEmotion() {
+    try { await faceapi.tf.setBackend('webgl'); } catch { }
+    await faceapi.tf.ready();
+
     await Promise.all([
-        faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-        faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL),
+        faceapi.nets.tinyFaceDetector.loadFromUri(FACEAPI_MODELS),
+        faceapi.nets.faceExpressionNet.loadFromUri(FACEAPI_MODELS),
     ]);
+
 }
 
 export async function getEmotion(videoEl: HTMLVideoElement): Promise<{
