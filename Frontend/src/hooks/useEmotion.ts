@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import * as tf from '@tensorflow/tfjs';
 import * as faceLandmarksDetection from '@tensorflow-models/face-landmarks-detection';
-import * as faceapi from 'face-api.js';
 
 export type Mood = 'happy' | 'neutral' | 'sad';
 type KP = { x: number; y: number; z?: number };
@@ -21,57 +21,7 @@ type Calib = {
     sad?: Features;
 };
 
-const FACEAPI_MODELS = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights';
-
 const CALIB_KEY = 'mooddj_calib_v2';
-
-
-export async function initEmotion() {
-    try { await faceapi.tf.setBackend('webgl'); } catch { }
-    await faceapi.tf.ready();
-
-    await Promise.all([
-        faceapi.nets.tinyFaceDetector.loadFromUri(FACEAPI_MODELS),
-        faceapi.nets.faceExpressionNet.loadFromUri(FACEAPI_MODELS),
-    ]);
-
-}
-
-export async function getEmotion(videoEl: HTMLVideoElement): Promise<{
-    tracking: boolean;
-    mood: Mood;
-    scores: { happy: number; neutral: number; sad: number };
-}> {
-    const opts = new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.5 });
-    const det = await faceapi.detectSingleFace(videoEl, opts).withFaceExpressions();
-    if (!det) {
-        return { tracking: false, mood: 'neutral', scores: { happy: 0, neutral: 1, sad: 0 } };
-    }
-
-    // Destructure the known fields from FaceExpressions (avoids index typing)
-    const {
-        happy = 0,
-        neutral = 0,
-        sad = 0,
-        angry = 0,
-        fearful = 0,
-        disgusted = 0,
-        surprised = 0,
-    } = det.expressions as any; // FaceExpressions doesn't expose an index signature
-
-    const scores = {
-        happy,
-        neutral: neutral + surprised * 0.25,
-        sad: sad + angry * 0.5 + fearful * 0.5 + disgusted * 0.5,
-    };
-
-    const mood: Mood =
-        scores.happy >= scores.sad && scores.happy >= scores.neutral ? 'happy' :
-            scores.sad >= scores.happy && scores.sad >= scores.neutral ? 'sad' :
-                'neutral';
-
-    return { tracking: true, mood, scores };
-}
 
 export function useEmotion(videoEl: HTMLVideoElement | null) {
     const [mood, setMood] = useState<Mood>('neutral');
@@ -106,30 +56,32 @@ export function useEmotion(videoEl: HTMLVideoElement | null) {
     useEffect(() => {
         let cancelled = false;
 
-        async function initDetector() {
+        async function initDetector(desired: 'tfjs' | 'mediapipe') {
             try {
+                if (desired === 'tfjs') {
+                    await tf.ready();
+                    try { await tf.setBackend('webgl'); } catch { }
+                }
                 const detector = await faceLandmarksDetection.createDetector(
                     faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
-                    {
-                        runtime: 'mediapipe',
-                        refineLandmarks: true,
-                        maxFaces: 1,
-                        // CDN that serves the solution files (works on Vercel)
-                        solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh',
-                    }
+                    desired === 'tfjs'
+                        ? { runtime: 'tfjs', refineLandmarks: true, maxFaces: 1 }
+                        : { runtime: 'mediapipe', refineLandmarks: true, maxFaces: 1, solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh' }
                 );
                 if (cancelled) return;
                 detectorRef.current = detector;
-                setRuntime('mediapipe');     // if you track this
+                setRuntime(desired);
                 setReady(true);
                 setLastError(null);
                 zeroFaceFramesRef.current = 0;
             } catch (e: any) {
-                if (!cancelled) setLastError(`init(mediapipe): ${String(e?.message || e)}`);
+                if (cancelled) return;
+                setLastError(`init(${desired}): ${String(e?.message || e)}`);
+                if (desired === 'tfjs') initDetector('mediapipe');
             }
         }
 
-        initDetector();
+        initDetector('tfjs');
         return () => { cancelled = true; stop(); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -143,31 +95,6 @@ export function useEmotion(videoEl: HTMLVideoElement | null) {
         return () => videoEl.removeEventListener('canplay', onCanPlay);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [videoEl, running, ready, restartEpochRef.current]);
-
-    useEffect(() => {
-        let timer: number | undefined;
-
-        (async () => {
-            await initEmotion();        // <- loads models from hosted URL
-            setReady(true);             // if you track readiness
-
-            const tick = async () => {
-                if (!videoEl) return;
-                const res = await getEmotion(videoEl);
-                setTracking(res.tracking);
-                if (res.tracking) {
-                    // if you have smoothing/calibration, apply it here to res.scores
-                    setScores(res.scores);
-                    setMood(res.mood);
-                }
-            };
-
-            timer = window.setInterval(tick, 250); // 4 FPS is plenty
-        })();
-
-        return () => { if (timer) window.clearInterval(timer); };
-    }, [videoEl]);
-
 
     function hasLiveStream(el: HTMLVideoElement | null) {
         const ms = (el?.srcObject as MediaStream | null) || null;

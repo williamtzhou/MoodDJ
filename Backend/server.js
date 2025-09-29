@@ -5,8 +5,6 @@ import fetch from 'node-fetch';
 import fs from 'fs';
 
 const TOKENS_PATH = process.env.TOKENS_PATH || './tokens.json';
-const MAIN_ORIGIN = process.env.FRONTEND_URL?.replace(/\/$/, '');
-const ALLOW_PREVIEW = /\.vercel\.app$/i;
 
 const app = express();
 app.use(express.json());
@@ -14,22 +12,12 @@ app.use(express.json());
 const {
     SPOTIFY_CLIENT_ID,
     SPOTIFY_CLIENT_SECRET,
-    REDIRECT_URI, // e.g. http://127.0.0.1:3001/callback
+    REDIRECT_URI, // e.g. http://127.0.0.1:3001/callback  (MUST match your Spotify app)
 } = process.env;
 
 const PORT = process.env.PORT || 3001;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
-app.use(cors({
-    credentials: true,
-    origin: (origin, cb) => {
-        if (!origin) return cb(null, true); // curl/postman etc.
-        const o = origin.replace(/\/$/, '');
-        if (o === MAIN_ORIGIN || ALLOW_PREVIEW.test(new URL(o).hostname)) {
-            return cb(null, true);
-        }
-        cb(new Error('CORS not allowed: ' + origin));
-    },
-}));
+app.use(cors({ origin: [FRONTEND_URL], credentials: true }));
 
 if (!FRONTEND_URL) {
     console.warn('⚠️ FRONTEND_URL missing in .env (e.g., http://localhost:5173)');
