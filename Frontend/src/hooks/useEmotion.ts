@@ -21,6 +21,9 @@ type Calib = {
     sad?: Features;
 };
 
+const base = `${import.meta.env.BASE_URL}models/emotion`;
+const model = await tf.loadGraphModel(`${base}/model.json`);
+
 const CALIB_KEY = 'mooddj_calib_v2';
 
 export function useEmotion(videoEl: HTMLVideoElement | null) {
