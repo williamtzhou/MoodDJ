@@ -10,18 +10,14 @@ type Return = {
     tracking: boolean;
     runtime: 'tfjs' | 'mediapipe' | null;
     lastError: string | null;
-
     ready: boolean;
     faceCount: number;
     captureCalibration: (w: 'happy' | 'neutral' | 'sad') => void;
     clearCalibration: () => void;
     swapNeutralSad: () => void;
-
     start: () => void;
     stop: () => void;
 };
-
-const MP_URL = 'https://unpkg.com/@mediapipe/face_mesh@0.4.1646424915';
 
 function scoreFromLandmarks(_pts: any): { mood: Mood; scores: Scores } {
     return { mood: 'neutral', scores: { happy: 0.33, neutral: 0.34, sad: 0.33 } };
@@ -30,16 +26,14 @@ function scoreFromLandmarks(_pts: any): { mood: Mood; scores: Scores } {
 export function useEmotion(videoEl: HTMLVideoElement | null): Return {
     const [mood, setMood] = useState<Mood>('neutral');
     const [scores, setScores] = useState<Scores>({ happy: 0.33, neutral: 0.34, sad: 0.33 });
-
     const [running, setRunning] = useState(false);
     const [tracking, setTracking] = useState(false);
     const [runtime, setRuntime] = useState<'tfjs' | 'mediapipe' | null>(null);
     const [lastError, setLastError] = useState<string | null>(null);
-
     const [ready, setReady] = useState(false);
     const [faceCount, setFaceCount] = useState(0);
 
-    const mpRef = useRef<any | null>(null);       // MediaPipe FaceMesh instance
+    const mpRef = useRef<any | null>(null);
     const rafRef = useRef<number | null>(null);
     const missFramesRef = useRef(0);
 
@@ -47,19 +41,15 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
     const clearCalibration = () => { };
     const swapNeutralSad = () => { };
 
-    // Init MediaPipe FaceMesh (no TFJS)
     useEffect(() => {
         let cancelled = false;
-
         (async () => {
             try {
                 const FaceMeshCtor = (window as any).FaceMesh;
-                if (!FaceMeshCtor) {
-                    throw new Error('global FaceMesh not loaded');
-                }
+                if (!FaceMeshCtor) throw new Error('FaceMesh global not loaded');
 
                 const fm = new FaceMeshCtor({
-                    locateFile: (f: string) => `${MP_URL}/${f}`,
+                    // no locateFile; asset loaders are already on the page
                 });
 
                 fm.setOptions({
@@ -74,7 +64,6 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
                     setFaceCount(faces.length);
                     const has = faces.length > 0 && faces[0]?.length;
                     setTracking(Boolean(has));
-
                     if (has) {
                         const r = scoreFromLandmarks(faces[0]);
                         setMood(r.mood);
@@ -101,7 +90,6 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
                 }
             }
         })();
-
         return () => {
             cancelled = true;
             try { mpRef.current?.close?.(); } catch { }
@@ -143,21 +131,17 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
 
     async function loop() {
         if (!running || !videoEl || !mpRef.current) return;
-
         try {
-            // MediaPipe expects await send({image})
             await mpRef.current.send({ image: videoEl });
         } catch (e: any) {
             setLastError('loop error: ' + (e?.message || String(e)));
         }
-
         rafRef.current = requestAnimationFrame(loop);
     }
 
     useEffect(() => {
         if (!running) return;
         if (!videoEl || !mpRef.current) return;
-
         const onReady = () => kickOff();
         videoEl.addEventListener('loadedmetadata', onReady);
         videoEl.addEventListener('canplay', onReady);
@@ -176,13 +160,11 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
         tracking,
         runtime,
         lastError,
-
         ready,
         faceCount,
         captureCalibration,
         clearCalibration,
         swapNeutralSad,
-
         start,
         stop,
     };
