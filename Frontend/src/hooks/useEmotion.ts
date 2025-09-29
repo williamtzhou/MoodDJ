@@ -56,45 +56,94 @@ export function useEmotion(videoEl: HTMLVideoElement | null) {
     useEffect(() => {
         let cancelled = false;
 
-        async function initDetector(desired: 'tfjs' | 'mediapipe') {
+        async function createTFJSDetector(backend: 'webgl' | 'wasm') {
+            await tf.ready();
+            try { await tf.setBackend(backend); } catch { }
+            return await faceLandmarksDetection.createDetector(
+                faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
+                { runtime: 'tfjs', refineLandmarks: true, maxFaces: 1 }
+            );
+        }
+
+        function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+            return new Promise((resolve, reject) => {
+                const t = setTimeout(() => reject(new Error(`timeout: ${label}`)), ms);
+                p.then(v => { clearTimeout(t); resolve(v); }, e => { clearTimeout(t); reject(e); });
+            });
+        }
+
+        async function initDetector() {
             try {
-                if (desired === 'tfjs') {
-                    await tf.ready();
-                    try { await tf.setBackend('webgl'); } catch { }
-                }
-                const detector = await faceLandmarksDetection.createDetector(
-                    faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
-                    desired === 'tfjs'
-                        ? { runtime: 'tfjs', refineLandmarks: true, maxFaces: 1 }
-                        : { runtime: 'mediapipe', refineLandmarks: true, maxFaces: 1, solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh' }
-                );
+                setLastError('init: tfjs(webgl)…');
+                const tfjsWebgl = await withTimeout(createTFJSDetector('webgl'), 3000, 'tfjs webgl');
                 if (cancelled) return;
-                detectorRef.current = detector;
-                setRuntime(desired);
+                detectorRef.current = tfjsWebgl;
+                setRuntime('tfjs');
                 setReady(true);
                 setLastError(null);
                 zeroFaceFramesRef.current = 0;
+                return;
             } catch (e: any) {
                 if (cancelled) return;
-                setLastError(`init(${desired}): ${String(e?.message || e)}`);
-                if (desired === 'tfjs') initDetector('mediapipe');
+                setLastError(`init fallback: ${String(e?.message || e)}`);
+            }
+
+            try {
+                setLastError('init: mediapipe wasm…');
+                const mp = await faceLandmarksDetection.createDetector(
+                    faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
+                    {
+                        runtime: 'mediapipe',
+                        refineLandmarks: true,
+                        maxFaces: 1,
+                        // pin a version to avoid CDN metadata hiccups
+                        solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4',
+                    }
+                );
+                if (cancelled) return;
+                detectorRef.current = mp;
+                setRuntime('mediapipe');
+                setReady(true);
+                setLastError(null);
+                zeroFaceFramesRef.current = 0;
+                return;
+            } catch (e: any) {
+                if (cancelled) return;
+                setLastError(`init fallback2: mediapipe failed: ${String(e?.message || e)}`);
+            }
+
+            try {
+                setLastError('init: tfjs(wasm) final attempt…');
+                const tfjsWasm = await createTFJSDetector('wasm');
+                if (cancelled) return;
+                detectorRef.current = tfjsWasm;
+                setRuntime('tfjs');
+                setReady(true);
+                setLastError(null);
+                zeroFaceFramesRef.current = 0;
+                return;
+            } catch (e: any) {
+                if (cancelled) return;
+                setLastError(`init failed: ${String(e?.message || e)}`);
             }
         }
 
-        initDetector('tfjs');
+        initDetector();
         return () => { cancelled = true; stop(); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+
     // Start loop when the <video> can play (also when restartEpoch bumps)
     useEffect(() => {
         if (!running || !videoEl) return;
-
         const onReady = () => kickOff();
+
         videoEl.addEventListener('loadedmetadata', onReady);
         videoEl.addEventListener('canplay', onReady);
 
-        // edge-case: if already ready
+        // nudge playback so dimensions populate
+        videoEl.play?.().catch(() => { });
         if (videoEl.readyState >= 2) kickOff();
 
         return () => {
@@ -102,7 +151,7 @@ export function useEmotion(videoEl: HTMLVideoElement | null) {
             videoEl.removeEventListener('canplay', onReady);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [videoEl, running, detectorRef.current]);
+    }, [videoEl, running, ready]);
 
 
     function hasLiveStream(el: HTMLVideoElement | null) {
@@ -131,10 +180,8 @@ export function useEmotion(videoEl: HTMLVideoElement | null) {
 
     function kickOff() {
         if (!running || !videoEl || !detectorRef.current) return;
-
         const vw = (videoEl as HTMLVideoElement).videoWidth || 0;
         const vh = (videoEl as HTMLVideoElement).videoHeight || 0;
-
         if (vw === 0 || vh === 0) {
             videoEl.play?.().catch(() => { });
             rafRef.current = requestAnimationFrame(kickOff);

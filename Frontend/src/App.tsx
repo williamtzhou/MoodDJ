@@ -318,6 +318,11 @@ export default function App() {
                             <li>Current mood (used by app): {mood}</li>
                             <li>Spotify: {linked ? 'linked' : 'not linked'}</li>
                             <li>Playlist size target: {size}</li>
+                            {/* <li>Runtime: {runtime}</li> */}
+                            <li>Video: {videoEl?.videoWidth || 0}×{videoEl?.videoHeight || 0} readyState {videoEl?.readyState}</li>
+                            <li>Stream: {stream ? stream.getVideoTracks().map(t => t.readyState).join(',') : 'none'}</li>
+                            <li>{lastError && <span style={{ color: 'crimson' }}>Init: {lastError}</span>}</li>
+
                         </ul>
 
                         <div style={{ marginTop: 8 }}>
