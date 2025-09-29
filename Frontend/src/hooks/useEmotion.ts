@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as tf from '@tensorflow/tfjs';
 import * as faceLandmarksDetection from '@tensorflow-models/face-landmarks-detection';
+import * as faceapi from 'face-api.js';
 
 export type Mood = 'happy' | 'neutral' | 'sad';
 type KP = { x: number; y: number; z?: number };
@@ -23,8 +24,52 @@ type Calib = {
 
 const base = `${import.meta.env.BASE_URL}models/emotion`;
 const model = await tf.loadGraphModel(`${base}/model.json`);
+const MODEL_URL = 'https://github.com/justadudewhohacks/face-api.js.git';
 
 const CALIB_KEY = 'mooddj_calib_v2';
+
+export async function initEmotion() {
+    await Promise.all([
+        faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+        faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL),
+    ]);
+}
+
+export async function getEmotion(videoEl: HTMLVideoElement): Promise<{
+    tracking: boolean;
+    mood: Mood;
+    scores: { happy: number; neutral: number; sad: number };
+}> {
+    const opts = new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.5 });
+    const det = await faceapi.detectSingleFace(videoEl, opts).withFaceExpressions();
+    if (!det) {
+        return { tracking: false, mood: 'neutral', scores: { happy: 0, neutral: 1, sad: 0 } };
+    }
+
+    // Destructure the known fields from FaceExpressions (avoids index typing)
+    const {
+        happy = 0,
+        neutral = 0,
+        sad = 0,
+        angry = 0,
+        fearful = 0,
+        disgusted = 0,
+        surprised = 0,
+    } = det.expressions as any; // FaceExpressions doesn't expose an index signature
+
+    const scores = {
+        happy,
+        neutral: neutral + surprised * 0.25,
+        sad: sad + angry * 0.5 + fearful * 0.5 + disgusted * 0.5,
+    };
+
+    const mood: Mood =
+        scores.happy >= scores.sad && scores.happy >= scores.neutral ? 'happy' :
+            scores.sad >= scores.happy && scores.sad >= scores.neutral ? 'sad' :
+                'neutral';
+
+    return { tracking: true, mood, scores };
+}
 
 export function useEmotion(videoEl: HTMLVideoElement | null) {
     const [mood, setMood] = useState<Mood>('neutral');
@@ -98,6 +143,31 @@ export function useEmotion(videoEl: HTMLVideoElement | null) {
         return () => videoEl.removeEventListener('canplay', onCanPlay);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [videoEl, running, ready, restartEpochRef.current]);
+
+    useEffect(() => {
+        let timer: number | undefined;
+
+        (async () => {
+            await initEmotion();        // <- loads models from hosted URL
+            setReady(true);             // if you track readiness
+
+            const tick = async () => {
+                if (!videoEl) return;
+                const res = await getEmotion(videoEl);
+                setTracking(res.tracking);
+                if (res.tracking) {
+                    // if you have smoothing/calibration, apply it here to res.scores
+                    setScores(res.scores);
+                    setMood(res.mood);
+                }
+            };
+
+            timer = window.setInterval(tick, 250); // 4 FPS is plenty
+        })();
+
+        return () => { if (timer) window.clearInterval(timer); };
+    }, [videoEl]);
+
 
     function hasLiveStream(el: HTMLVideoElement | null) {
         const ms = (el?.srcObject as MediaStream | null) || null;
