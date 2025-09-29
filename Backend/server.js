@@ -9,6 +9,11 @@ const TOKENS_PATH = process.env.TOKENS_PATH || './tokens.json';
 const app = express();
 app.use(express.json());
 
+const CORS_ORIGINS = (process.env.CORS_ORIGINS || process.env.FRONTEND_URL || 'http://localhost:5173')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+
 const {
     SPOTIFY_CLIENT_ID,
     SPOTIFY_CLIENT_SECRET,
@@ -57,6 +62,18 @@ function getSeenSet(label) {
     return SEEN_PER_MOOD.get(label);
 }
 
+function originAllowed(reqOrigin) {
+    if (!reqOrigin) return true; // non-browser clients
+    return CORS_ORIGINS.some(allowed => {
+        if (allowed === reqOrigin) return true;
+        if (allowed.startsWith('*.')) {
+            const suffix = allowed.slice(1); // ".vercel.app"
+            return reqOrigin.endsWith(suffix);
+        }
+        return false;
+    });
+}
+
 function loadTokens() {
     try { return JSON.parse(fs.readFileSync(TOKENS_PATH, 'utf8')); } catch { return {}; }
 }
@@ -71,6 +88,15 @@ async function setTokens({ access_token, refresh_token, expires_at }) {
     saveTokens(tokenStore);
 }
 
+app.use(cors({
+    credentials: true,
+    origin: (origin, cb) => {
+        if (originAllowed(origin)) return cb(null, true);
+        // Log once in case you deploy to a new preview domain
+        console.warn('CORS blocked origin:', origin, 'allowed:', CORS_ORIGINS);
+        return cb(new Error('Not allowed by CORS'));
+    },
+}));
 
 app.get('/', (_req, res) => {
     res.json({ ok: true, tip: 'try /login' });
