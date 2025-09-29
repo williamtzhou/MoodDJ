@@ -14,6 +14,40 @@ const CORS_ORIGINS = (process.env.CORS_ORIGINS || process.env.FRONTEND_URL || 'h
     .map(s => s.trim())
     .filter(Boolean);
 
+const MP_VERSION = '0.4.1646424915';
+const ALLOW = new Set([
+    'face_mesh.js',
+    'face_mesh_solution_packed_assets_loader.js',
+    'face_mesh_solution_simd_wasm_bin.js',
+    'face_mesh_solution_simd_wasm_bin.wasm',
+]);
+
+app.get('/mp/:file', async (req, res) => {
+    try {
+        const file = req.params.file;
+        if (!ALLOW.has(file)) return res.status(404).end();
+
+        const upstream = `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@${MP_VERSION}/${file}`;
+        const r = await fetch(upstream);
+        if (!r.ok) {
+            const text = await r.text().catch(() => '');
+            return res.status(r.status).send(text);
+        }
+
+        res.set('Access-Control-Allow-Origin', '*');
+        res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+        res.set('Cache-Control', 'public, max-age=31536000, immutable');
+
+        const type = file.endsWith('.wasm') ? 'application/wasm' : 'application/javascript';
+        res.type(type);
+
+        // Stream to the client
+        r.body.pipe(res);
+    } catch (e) {
+        res.status(500).send('mp proxy error');
+    }
+});
+
 const {
     SPOTIFY_CLIENT_ID,
     SPOTIFY_CLIENT_SECRET,
@@ -63,34 +97,34 @@ function getSeenSet(label) {
 }
 
 function hostOf(u) {
-  try { return new URL(u).hostname; } catch { return ''; }
+    try { return new URL(u).hostname; } catch { return ''; }
 }
 function patHost(p) {
-  // allow both "*.vercel.app" and "https://*.vercel.app"
-  try { return new URL(p).hostname; } catch { return p.replace(/^https?:\/\//, ''); }
+    // allow both "*.vercel.app" and "https://*.vercel.app"
+    try { return new URL(p).hostname; } catch { return p.replace(/^https?:\/\//, ''); }
 }
 function originAllowed(reqOrigin) {
-  if (!reqOrigin) return true; // non-browser clients
-  const host = hostOf(reqOrigin); 
-  return CORS_ORIGINS.some(pat => {
-    const ph = patHost(pat); // e.g. "*.vercel.app" or "mood-dj.vercel.app"
-    if (!ph) return false;
-    if (ph === '*') return true;
-    if (ph.startsWith('*.')) {
-      const base = ph.slice(2); // "vercel.app"
-      return host === base || host.endsWith('.' + base);
-    }
-    return host === ph;
-  });
+    if (!reqOrigin) return true; // non-browser clients
+    const host = hostOf(reqOrigin);
+    return CORS_ORIGINS.some(pat => {
+        const ph = patHost(pat); // e.g. "*.vercel.app" or "mood-dj.vercel.app"
+        if (!ph) return false;
+        if (ph === '*') return true;
+        if (ph.startsWith('*.')) {
+            const base = ph.slice(2); // "vercel.app"
+            return host === base || host.endsWith('.' + base);
+        }
+        return host === ph;
+    });
 }
 
 const corsMiddleware = cors({
-  credentials: true,
-  origin: (origin, cb) => {
-    if (originAllowed(origin)) return cb(null, true);
-    console.warn('CORS blocked origin:', origin, 'allowed:', CORS_ORIGINS);
-    return cb(new Error('Not allowed by CORS'));
-  },
+    credentials: true,
+    origin: (origin, cb) => {
+        if (originAllowed(origin)) return cb(null, true);
+        console.warn('CORS blocked origin:', origin, 'allowed:', CORS_ORIGINS);
+        return cb(new Error('Not allowed by CORS'));
+    },
 });
 
 // Apply to all routes + preflight

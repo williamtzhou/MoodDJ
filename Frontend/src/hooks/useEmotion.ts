@@ -1,4 +1,3 @@
-// Frontend/src/hooks/useEmotion.ts
 import { useEffect, useRef, useState } from 'react';
 
 export type Mood = 'happy' | 'neutral' | 'sad';
@@ -22,8 +21,11 @@ type Return = {
     stop: () => void;
 };
 
-// Stable MediaPipe build; all assets live under this directory.
-const MP_BASE = 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1646424915';
+const BACKEND =
+    (import.meta as any).env?.VITE_BACKEND_URL ??
+    `${location.protocol}//${location.hostname}:3001`;
+
+const MP_BASE = `${BACKEND}/mp`;
 
 function scoreFromLandmarks(_pts: any): { mood: Mood; scores: Scores } {
     return { mood: 'neutral', scores: { happy: 0.33, neutral: 0.34, sad: 0.33 } };
@@ -31,13 +33,12 @@ function scoreFromLandmarks(_pts: any): { mood: Mood; scores: Scores } {
 
 function loadScriptOnce(src: string): Promise<void> {
     return new Promise((resolve, reject) => {
-        // Already loaded?
         const existing = document.querySelector<HTMLScriptElement>(`script[data-src="${src}"]`);
-        if (existing && (existing as any)._loaded) { resolve(); return; }
+        if (existing && (existing as any)._loaded) return resolve();
 
         const s = document.createElement('script');
         s.src = src;
-        s.async = false; // preserve order
+        s.async = false; // preserve load order
         s.defer = false;
         s.setAttribute('data-src', src);
         s.onload = () => { (s as any)._loaded = true; resolve(); };
@@ -47,14 +48,10 @@ function loadScriptOnce(src: string): Promise<void> {
 }
 
 async function ensureMediaPipe(): Promise<any> {
-    // If FaceMesh is already present, nothing to do.
     if ((window as any).FaceMesh) return (window as any).FaceMesh;
-
-    // Load in strict order so the asset loader can register properly.
     await loadScriptOnce(`${MP_BASE}/face_mesh.js`);
     await loadScriptOnce(`${MP_BASE}/face_mesh_solution_packed_assets_loader.js`);
     await loadScriptOnce(`${MP_BASE}/face_mesh_solution_simd_wasm_bin.js`);
-
     const FaceMeshCtor = (window as any).FaceMesh;
     if (!FaceMeshCtor) throw new Error('FaceMesh global not loaded after scripts');
     return FaceMeshCtor;
@@ -63,12 +60,10 @@ async function ensureMediaPipe(): Promise<any> {
 export function useEmotion(videoEl: HTMLVideoElement | null): Return {
     const [mood, setMood] = useState<Mood>('neutral');
     const [scores, setScores] = useState<Scores>({ happy: 0.33, neutral: 0.34, sad: 0.33 });
-
     const [running, setRunning] = useState(false);
     const [tracking, setTracking] = useState(false);
     const [runtime, setRuntime] = useState<'tfjs' | 'mediapipe' | null>(null);
     const [lastError, setLastError] = useState<string | null>(null);
-
     const [ready, setReady] = useState(false);
     const [faceCount, setFaceCount] = useState(0);
 
@@ -80,7 +75,6 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
     const clearCalibration = () => { };
     const swapNeutralSad = () => { };
 
-    // Initialize MediaPipe FaceMesh directly (no TFJS)
     useEffect(() => {
         let cancelled = false;
 
@@ -88,7 +82,6 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
             try {
                 const FaceMeshCtor = await ensureMediaPipe();
 
-                // Route any additional files (e.g., .wasm) back to the same CDN folder.
                 const fm = new FaceMeshCtor({
                     locateFile: (f: string) => `${MP_BASE}/${f}`,
                 });
@@ -103,6 +96,7 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
                 fm.onResults((res: any) => {
                     const faces = res.multiFaceLandmarks || [];
                     setFaceCount(faces.length);
+
                     const has = faces.length > 0 && faces[0]?.length;
                     setTracking(Boolean(has));
 
@@ -127,7 +121,7 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
                 setLastError(null);
             } catch (e: any) {
                 if (!cancelled) {
-                    setLastError('init failed (mediapipe direct): ' + (e?.message || String(e)));
+                    setLastError(`init failed (mediapipe direct): ${e?.message || String(e)}`);
                     setReady(false);
                 }
             }
@@ -193,7 +187,6 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
             videoEl.removeEventListener('loadedmetadata', onReady);
             videoEl.removeEventListener('canplay', onReady);
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [videoEl, running, mpRef.current]);
 
     return {
@@ -203,13 +196,11 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
         tracking,
         runtime,
         lastError,
-
         ready,
         faceCount,
         captureCalibration,
         clearCalibration,
         swapNeutralSad,
-
         start,
         stop,
     };
