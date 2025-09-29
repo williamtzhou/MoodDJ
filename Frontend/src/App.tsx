@@ -1,10 +1,41 @@
-import { useCallback, useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useEmotion, Mood } from './hooks/useEmotion';
 
 const BACKEND = `http://${window.location.hostname}:3001`;
 
+// Number input helper (smooth typing/backspace; clamp on blur/enter/arrow)
+function useNumberField(opts: {
+    value: number;
+    setValue: (n: number) => void;
+    min: number;
+    max: number;
+    step?: number;
+}) {
+    const { value, setValue, min, max, step = 1 } = opts;
+    const [text, setText] = useState(String(value));
+    useEffect(() => { setText(String(value)); }, [value]);
+
+    const commit = () => {
+        const n = Number(text);
+        if (Number.isFinite(n)) setValue(Math.max(min, Math.min(max, Math.round(n))));
+        else setText(String(value));
+    };
+    const onChange = (e: React.ChangeEvent<HTMLInputElement>) => setText(e.target.value);
+    const onBlur = () => commit();
+    const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+            e.preventDefault();
+            const cur = Number.isFinite(Number(text)) ? Number(text) : value;
+            const next = e.key === 'ArrowUp' ? cur + step : cur - step;
+            const clamped = Math.max(min, Math.min(max, Math.round(next)));
+            setValue(clamped); setText(String(clamped));
+        }
+        if (e.key === 'Enter') commit();
+    };
+    return { text, onChange, onBlur, onKeyDown };
+}
+
 export default function App() {
-    // Always mount the processing <video>; just hide it when preview is off.
     const [showPreview, setShowPreview] = useState(true);
     const [cameraOn, setCameraOn] = useState(false);
 
@@ -15,42 +46,70 @@ export default function App() {
 
     const [linked, setLinked] = useState(false);
     const [size, setSize] = useState(25);
+    const [intervalMs, setIntervalMs] = useState(180_000);
+    const [perTick, setPerTick] = useState(1);
+
+    const sizeField = useNumberField({ value: size, setValue: setSize, min: 1, max: 100 });
+    const intervalField = useNumberField({
+        value: Math.round(intervalMs / 1000),
+        setValue: (secs) => setIntervalMs(secs * 1000),
+        min: 5, max: 3600, step: 5
+    });
+    const perTickField = useNumberField({ value: perTick, setValue: setPerTick, min: 1, max: 5 });
+
     const [playlist, setPlaylist] = useState<{ id: string; url: string | null; uri: string; name: string } | null>(null);
 
     const [mood, setMood] = useState<Mood>('neutral');
-    const lastSentMoodRef = useRef<Mood | null>(null);
-    const [intervalMs, setIntervalMs] = useState(30_000); // 30s default
-    const [perTick, setPerTick] = useState(1);            // songs to add each tick
-    const intervalRef = useRef<number | null>(null);
-
     const moodRef = useRef<Mood>('neutral');
-    const inFlightRef = useRef(false); // prevent overlap if a slow request is still running
+    useEffect(() => { moodRef.current = mood; }, [mood]);
 
-
+    const intervalRef = useRef<number | null>(null);
+    const inFlightRef = useRef(false);
 
     const {
-        mood: detectedMood, scores, ready, running: emoRunning, tracking, faceCount, lastError, start: startEmotion, stop: stopEmotion, captureCalibration,
-        clearCalibration
+        mood: detectedMood, scores, ready, running: emoRunning, tracking, faceCount, lastError,
+        start: startEmotion, stop: stopEmotion, captureCalibration, clearCalibration, swapNeutralSad
     } = useEmotion(videoEl);
 
     useEffect(() => { if (detectedMood) setMood(detectedMood as Mood); }, [detectedMood]);
-    useEffect(() => { moodRef.current = mood; }, [mood]);
 
-    // Attach/detach stream whenever element or stream changes
+    // Attach/detach the stream and reliably (re)start detection
     useEffect(() => {
-        if (videoEl && stream) {
+        if (!videoEl) return;
+
+        function bind() {
+            if (!videoEl || !stream) return;
             videoEl.srcObject = stream;
-            videoEl.play?.();
-            // give the element a tick to bind, then start detection if user enabled camera
-            if (cameraOn) setTimeout(() => startEmotion(), 50);
+            // Wait for data, then start the detector and play
+            const onLoaded = () => {
+                startEmotion();
+                videoEl.play?.().catch(() => { });
+                videoEl.removeEventListener('loadeddata', onLoaded);
+            };
+            videoEl.addEventListener('loadeddata', onLoaded);
+            videoEl.load?.();
         }
-        if (videoEl && !stream) {
-            videoEl.srcObject = null;
+
+        if (stream) {
+            // Full reset before binding the new stream (prevents stale frames after restart)
+            videoEl.pause?.();
+            videoEl.removeAttribute('src');
+            (videoEl as any).srcObject = null;
+            videoEl.load?.();
+            // next task: bind stream, start detection on loadeddata
+            setTimeout(bind, 0);
+        } else {
+            // Tear down stream
+            videoEl.pause?.();
+            videoEl.removeAttribute('src');
+            (videoEl as any).srcObject = null;
+            videoEl.load?.();
+            stopEmotion();
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [videoEl, stream]);
 
-    // -------- Spotify plumbing (unchanged) --------
+    // Spotify auth plumbing
     const linkSpotify = () => {
         const returnTo = encodeURIComponent(window.location.origin);
         window.location.assign(`${BACKEND}/login?return_to=${returnTo}`);
@@ -79,79 +138,63 @@ export default function App() {
         if (new URLSearchParams(window.location.search).get('linked') === '1') load();
     }, [linked]);
 
+    // Auto add every N seconds (uses current mood)
     useEffect(() => {
-        // Clear any prior timer
-        if (intervalRef.current != null) {
-            clearInterval(intervalRef.current);
-            intervalRef.current = null;
-        }
-
-        // Only run when Spotify is linked and camera is on
+        if (intervalRef.current != null) { clearInterval(intervalRef.current); intervalRef.current = null; }
         if (!linked || !cameraOn) return;
 
         const tick = async () => {
-            if (inFlightRef.current) return; // skip if previous still running
+            if (inFlightRef.current) return;
             inFlightRef.current = true;
-
             try {
-                const m = moodRef.current;
-
-                // For now we only support 'happy' on the backend; remove this guard once you add other moods
-                if (m === 'happy') {
-                    await fetch(`${BACKEND}/mood/tick`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ label: 'happy', keep: size, count: perTick }), // <= EXACTLY perTick
-                    });
-                }
-                // No auto-replace here. Manual "Fill / Replace Playlist" is the only way to replace.
-            } catch {
-                // ignore errors
-            } finally {
-                inFlightRef.current = false;
-            }
+                await fetch(`${BACKEND}/mood/tick`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ label: moodRef.current, keep: size, count: perTick }),
+                });
+            } catch { } finally { inFlightRef.current = false; }
         };
 
         intervalRef.current = window.setInterval(tick, intervalMs);
+        return () => { if (intervalRef.current != null) { clearInterval(intervalRef.current); intervalRef.current = null; } };
+    }, [linked, cameraOn, intervalMs, perTick, size]);
 
-        return () => {
-            if (intervalRef.current != null) {
-                clearInterval(intervalRef.current);
-                intervalRef.current = null;
-            }
-        };
-    }, [linked, cameraOn, intervalMs, perTick, size]); // <-- notice: NOT dependent on `mood`
-
-
-
-    // -------- Camera controls --------
+    // Camera controls
     const startCamera = async () => {
         if (cameraOn) return;
         try {
             const s = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
             setStream(s);
             setCameraOn(true);
-            // startEmotion will be called by the effect when stream binds
         } catch {
             alert('Camera permission denied or unavailable');
         }
     };
     const stopCamera = () => {
         if (!cameraOn) return;
-        stopEmotion();               // pause detection loop cleanly
+        // Stop detection first, then kill tracks
+        stopEmotion();
         stream?.getTracks().forEach(t => t.stop());
         setStream(null);
         setCameraOn(false);
     };
 
-    // -------- Playlist actions (happy only for now) --------
+    // Playlist actions
     const fillPlaylist = async () => {
-        if (mood !== 'happy') { alert(`Only the Happy playlist is wired right now. Detected: ${mood}`); return; }
-        await fetch(`${BACKEND}/mood`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ label: 'happy', size }) });
+        if (!linked) { alert('Link Spotify first'); return; }
+        await fetch(`${BACKEND}/mood`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ label: moodRef.current, size }),
+        });
     };
     const addOne = async () => {
-        if (mood !== 'happy') { alert(`Only the Happy playlist is wired right now. Detected: ${mood}`); return; }
-        await fetch(`${BACKEND}/mood/tick`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ label: 'happy', keep: size }) });
+        if (!linked) { alert('Link Spotify first'); return; }
+        await fetch(`${BACKEND}/mood/tick`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ label: moodRef.current, keep: size, count: 1 }),
+        });
     };
 
     return (
@@ -160,7 +203,6 @@ export default function App() {
 
             <section style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '1rem' }}>
                 <div>
-                    {/* Always mounted processing video; hidden when preview is off */}
                     <video
                         ref={videoRef}
                         autoPlay
@@ -182,11 +224,13 @@ export default function App() {
                         </button>
                     </div>
 
+                    {/* Calibration controls (only when tracking) */}
                     {tracking && (
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
                             <button onClick={() => captureCalibration('neutral')}>Set Neutral</button>
                             <button onClick={() => captureCalibration('happy')}>Set Happy</button>
                             <button onClick={() => captureCalibration('sad')}>Set Sad</button>
+                            <button onClick={swapNeutralSad} title="If your neutral/sad feel swapped">Swap Neutral ↔ Sad</button>
                             <button onClick={clearCalibration} style={{ opacity: 0.7 }}>Clear Calib</button>
                         </div>
                     )}
@@ -205,26 +249,29 @@ export default function App() {
                         </span>
                     </div>
 
-                    <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div style={{ marginTop: 12, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                         <label>
                             Size:&nbsp;
                             <input
-                                type="number"
-                                min={1}
-                                max={100}
-                                value={size}
-                                onChange={e => setSize(Math.max(1, Math.min(100, Number(e.target.value) || 25)))}
+                                type="text"
+                                inputMode="numeric"
+                                value={sizeField.text}
+                                onChange={sizeField.onChange}
+                                onBlur={sizeField.onBlur}
+                                onKeyDown={sizeField.onKeyDown}
                                 style={{ width: 72 }}
                             />
                         </label>
+
                         <label>
                             Every:&nbsp;
                             <input
-                                type="number"
-                                min={5}
-                                step={5}
-                                value={Math.round(intervalMs / 1000)}
-                                onChange={e => setIntervalMs(Math.max(5, Number(e.target.value) || 30) * 1000)}
+                                type="text"
+                                inputMode="numeric"
+                                value={intervalField.text}
+                                onChange={intervalField.onChange}
+                                onBlur={intervalField.onBlur}
+                                onKeyDown={intervalField.onKeyDown}
                                 style={{ width: 72 }}
                             />s
                         </label>
@@ -232,17 +279,18 @@ export default function App() {
                         <label>
                             Add per tick:&nbsp;
                             <input
-                                type="number"
-                                min={1}
-                                max={5}
-                                value={perTick}
-                                onChange={e => setPerTick(Math.max(1, Math.min(5, Number(e.target.value) || 1)))}
+                                type="text"
+                                inputMode="numeric"
+                                value={perTickField.text}
+                                onChange={perTickField.onChange}
+                                onBlur={perTickField.onBlur}
+                                onKeyDown={perTickField.onKeyDown}
                                 style={{ width: 60 }}
                             />
                         </label>
 
-                        <button onClick={fillPlaylist} disabled={mood !== 'happy'}>Fill / Replace Playlist</button>
-                        <button onClick={addOne} disabled={mood !== 'happy'}>Add One</button>
+                        <button onClick={fillPlaylist} disabled={!linked}>Fill / Replace Playlist</button>
+                        <button onClick={addOne} disabled={!linked}>Add One</button>
                         <button onClick={linkSpotify} disabled={linked} title={linked ? 'Already linked' : ''}>
                             {linked ? 'Link Spotify ✔' : 'Link Spotify'}
                         </button>
@@ -275,10 +323,7 @@ export default function App() {
                                 <div key={m} style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '2px 0' }}>
                                     <div style={{ width: 70, textTransform: 'capitalize' }}>{m}</div>
                                     <div style={{ flex: 1, height: 8, border: '1px solid #ddd', borderRadius: 4 }}>
-                                        <div style={{
-                                            width: `${Math.round((scores as any)[m] * 100)}%`,
-                                            height: '100%', borderRadius: 4, background: '#888'
-                                        }} />
+                                        <div style={{ width: `${Math.round((scores as any)[m] * 100)}%`, height: '100%', borderRadius: 4, background: '#888' }} />
                                     </div>
                                     <div style={{ width: 48, textAlign: 'right' }}>{((scores as any)[m] * 100).toFixed(0)}%</div>
                                 </div>

@@ -28,9 +28,13 @@ if (!FRONTEND_URL) {
  * Mood → Spotify editorial playlist IDs (from your links)
  * ---------------------------------------------------------------- */
 const MOOD_SOURCE = {
-    happy: '6QfDUw2zL7VwN3MPU7crYl', // <- your public Happy playlist
+  happy:   '6QfDUw2zL7VwN3MPU7crYl', // your Happy (already working)
+  sad:     '6XNevehk5YztKwjOpcqv2l', // NEW: Sad
+  neutral: '3PBcfhjKPx7z4KcFQEiMia', // NEW: Chill/Neutral
 };
-const ALLOWED_MOODS = new Set(['happy']);
+
+// Keep ALLOWED_MOODS in sync:
+const ALLOWED_MOODS = new Set(Object.keys(MOOD_SOURCE));
 
 
 /** ----------------------------------------------------------------
