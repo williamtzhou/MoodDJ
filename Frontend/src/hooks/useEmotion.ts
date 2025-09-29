@@ -22,8 +22,6 @@ type Calib = {
     sad?: Features;
 };
 
-const base = `${import.meta.env.BASE_URL}models/emotion`;
-const model = await tf.loadGraphModel(`${base}/model.json`);
 const MODEL_URL = 'https://github.com/justadudewhohacks/face-api.js.git';
 
 const CALIB_KEY = 'mooddj_calib_v2';
