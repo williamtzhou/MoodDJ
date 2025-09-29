@@ -1,7 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import * as tf from '@tensorflow/tfjs';
-import { setWasmPaths } from '@tensorflow/tfjs-backend-wasm';
-import '@tensorflow/tfjs-backend-wasm';
 import * as faceLandmarksDetection from '@tensorflow-models/face-landmarks-detection';
 
 export type Mood = 'happy' | 'neutral' | 'sad';
@@ -25,9 +22,6 @@ type Return = {
     stop: () => void;
 };
 
-const DETECT_W = 320;
-const DETECT_H = 240;
-
 function scoreFromKeypoints(_kps: any): { mood: Mood; scores: Scores } {
     return { mood: 'neutral', scores: { happy: 0.33, neutral: 0.34, sad: 0.33 } };
 }
@@ -48,90 +42,48 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
     const rafRef = useRef<number | null>(null);
     const missFramesRef = useRef(0);
 
-    const canvasRef = useRef<HTMLCanvasElement | null>(null);
-    const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
-
     const captureCalibration = (_: 'happy' | 'neutral' | 'sad') => { };
     const clearCalibration = () => { };
     const swapNeutralSad = () => { };
 
-    useEffect(() => {
-        if (!canvasRef.current) {
-            const c = document.createElement('canvas');
-            c.width = DETECT_W; c.height = DETECT_H;
-            const ctx = c.getContext('2d', { willReadFrequently: true });
-            if (!ctx) {
-                setLastError('canvas context unavailable');
-            } else {
-                canvasRef.current = c;
-                ctxRef.current = ctx;
-            }
-        }
-    }, []);
-
+    // Create MediaPipe detector (no TFJS/WASM)
     useEffect(() => {
         let cancelled = false;
-        (async () => {
+
+        async function init() {
             try {
-                setWasmPaths('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@4.22.0/dist/');
-                try { tf.env().set('WASM_HAS_SIMD_SUPPORT', false as any); } catch { }
-                try { tf.env().set('WASM_HAS_MULTITHREAD_SUPPORT', false as any); } catch { }
-                try { tf.env().set('WASM_NUM_THREADS', 1 as any); } catch { }
-
-                await tf.ready();
-                await tf.setBackend('wasm');
-                await tf.ready();
-                try { await tf.removeBackend('webgl'); } catch { }
-                try { await tf.removeBackend('webgpu'); } catch { }
-
-                if (cancelled) return;
-
                 const det = await faceLandmarksDetection.createDetector(
                     faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
-                    { runtime: 'tfjs', refineLandmarks: true, maxFaces: 1 }
+                    {
+                        runtime: 'mediapipe',
+                        refineLandmarks: true,
+                        maxFaces: 1,
+                        // stable, widely-used FaceMesh assets
+                        solutionPath:
+                            'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619',
+                    }
                 );
                 if (cancelled) return;
-
                 detectorRef.current = det;
-                setRuntime('tfjs');
+                setRuntime('mediapipe');
                 setReady(true);
                 setLastError(null);
-            } catch (e1: any) {
-                try {
-                    setWasmPaths('https://unpkg.com/@tensorflow/tfjs-backend-wasm@4.22.0/dist/');
-                    await tf.setBackend('wasm');
-                    await tf.ready();
-                    const det = await faceLandmarksDetection.createDetector(
-                        faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
-                        { runtime: 'tfjs', refineLandmarks: true, maxFaces: 1 }
-                    );
-                    if (!cancelled) {
-                        detectorRef.current = det;
-                        setRuntime('tfjs');
-                        setReady(true);
-                        setLastError(null);
-                    }
-                } catch (e2: any) {
-                    if (!cancelled) {
-                        setLastError('init failed: ' + (e2?.message || String(e1)));
-                        setReady(false);
-                    }
+            } catch (e: any) {
+                if (!cancelled) {
+                    setLastError('init failed (mediapipe): ' + (e?.message || String(e)));
+                    setReady(false);
                 }
             }
-        })();
-        return () => { cancelled = true; };
-    }, []);
-
-    const drawFrame = (vid: HTMLVideoElement): HTMLCanvasElement | null => {
-        const c = canvasRef.current, ctx = ctxRef.current;
-        if (!c || !ctx) return null;
-        try {
-            ctx.drawImage(vid, 0, 0, c.width, c.height);
-            return c;
-        } catch {
-            return null;
         }
-    };
+
+        init();
+        return () => {
+            cancelled = true;
+            // best-effort dispose
+            try { detectorRef.current?.dispose?.(); } catch { }
+            detectorRef.current = null;
+        };
+    }, []);
 
     function stop() {
         setRunning(false);
@@ -169,13 +121,10 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
         if (!running || !videoEl || !detectorRef.current) return;
 
         try {
-            const input = drawFrame(videoEl);
-            if (!input) {
-                rafRef.current = requestAnimationFrame(loop);
-                return;
-            }
-
-            const faces = await detectorRef.current.estimateFaces(input, { flipHorizontal: false });
+            // pass the raw video element; do not flip in the model
+            const faces = await detectorRef.current.estimateFaces(videoEl, {
+                flipHorizontal: false,
+            });
 
             const count = faces?.length || 0;
             setFaceCount(count);
@@ -200,6 +149,7 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
         rafRef.current = requestAnimationFrame(loop);
     }
 
+    // re-kick when video is playable
     useEffect(() => {
         if (!running) return;
         if (!videoEl || !detectorRef.current) return;
