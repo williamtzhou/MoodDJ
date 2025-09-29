@@ -62,17 +62,40 @@ function getSeenSet(label) {
     return SEEN_PER_MOOD.get(label);
 }
 
-function originAllowed(reqOrigin) {
-    if (!reqOrigin) return true; // non-browser clients
-    return CORS_ORIGINS.some(allowed => {
-        if (allowed === reqOrigin) return true;
-        if (allowed.startsWith('*.')) {
-            const suffix = allowed.slice(1); // ".vercel.app"
-            return reqOrigin.endsWith(suffix);
-        }
-        return false;
-    });
+function hostOf(u) {
+  try { return new URL(u).hostname; } catch { return ''; }
 }
+function patHost(p) {
+  // allow both "*.vercel.app" and "https://*.vercel.app"
+  try { return new URL(p).hostname; } catch { return p.replace(/^https?:\/\//, ''); }
+}
+function originAllowed(reqOrigin) {
+  if (!reqOrigin) return true; // non-browser clients
+  const host = hostOf(reqOrigin); 
+  return CORS_ORIGINS.some(pat => {
+    const ph = patHost(pat); // e.g. "*.vercel.app" or "mood-dj.vercel.app"
+    if (!ph) return false;
+    if (ph === '*') return true;
+    if (ph.startsWith('*.')) {
+      const base = ph.slice(2); // "vercel.app"
+      return host === base || host.endsWith('.' + base);
+    }
+    return host === ph;
+  });
+}
+
+const corsMiddleware = cors({
+  credentials: true,
+  origin: (origin, cb) => {
+    if (originAllowed(origin)) return cb(null, true);
+    console.warn('CORS blocked origin:', origin, 'allowed:', CORS_ORIGINS);
+    return cb(new Error('Not allowed by CORS'));
+  },
+});
+
+// Apply to all routes + preflight
+app.use(corsMiddleware);
+app.options('*', corsMiddleware);
 
 function loadTokens() {
     try { return JSON.parse(fs.readFileSync(TOKENS_PATH, 'utf8')); } catch { return {}; }
