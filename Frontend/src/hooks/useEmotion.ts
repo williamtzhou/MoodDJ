@@ -22,7 +22,7 @@ type Return = {
     stop: () => void;
 };
 
-const MP_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619';
+const MP_URL = 'https://unpkg.com/@mediapipe/face_mesh@0.4.1633559619';
 
 function scoreFromKeypoints(_kps: any): { mood: Mood; scores: Scores } {
     return { mood: 'neutral', scores: { happy: 0.33, neutral: 0.34, sad: 0.33 } };
