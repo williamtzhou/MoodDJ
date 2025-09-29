@@ -27,6 +27,23 @@ const CALIB_KEY = 'mooddj_calib_v2';
 
 setWasmPaths('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@4.22.0/dist/');
 
+// @ts-ignore internal flags are allowed
+tf.env().set('WASM_HAS_SIMD_SUPPORT', false);
+// @ts-ignore
+tf.env().set('WASM_HAS_MULTITHREAD_SUPPORT', false);
+// @ts-ignore
+tf.env().set('WASM_NUM_THREADS', 1);
+
+const DETECT_W = 320;
+const DETECT_H = 240;
+const off = document.createElement('canvas');
+off.width = DETECT_W; off.height = DETECT_H;
+const offCtx = off.getContext('2d', { willReadFrequently: true })!;
+function getDetectorInput(videoEl: HTMLVideoElement) {
+    offCtx.drawImage(videoEl, 0, 0, off.width, off.height);
+    return off; // pass this to estimateFaces()
+}
+
 export function useEmotion(videoEl: HTMLVideoElement | null) {
     const [mood, setMood] = useState<Mood>('neutral');
     const [scores, setScores] = useState<Scores>({ happy: 0.33, neutral: 0.34, sad: 0.33 });
@@ -63,7 +80,7 @@ export function useEmotion(videoEl: HTMLVideoElement | null) {
         (async () => {
             try {
                 await tf.ready();
-                await tf.setBackend('wasm');
+                await tf.setBackend('wasm');      // force WASM (no WebGL/WebGPU)
                 await tf.ready();
                 try { await tf.removeBackend('webgl'); } catch { }
                 try { await tf.removeBackend('webgpu'); } catch { }
@@ -72,41 +89,39 @@ export function useEmotion(videoEl: HTMLVideoElement | null) {
                     faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
                     { runtime: 'tfjs', refineLandmarks: true, maxFaces: 1 }
                 );
-                detectorRef.current = det;
                 if (cancelled) return;
-                setReady(true);
-                setRuntime('tfjs');
-                setLastError(null);
+                detectorRef.current = det;
+                setRuntime?.('tfjs');
+                setReady?.(true);
+                setLastError?.(null);
                 zeroFaceFramesRef.current = 0;
             } catch (e: any) {
-                if (String(e?.message || e).includes('wasm') || String(e).includes('404')) {
+                // fallback CDN if needed (jsDelivr blocked)
+                try {
                     setWasmPaths('https://unpkg.com/@tensorflow/tfjs-backend-wasm@4.22.0/dist/');
-                    try {
-                        await tf.setBackend('wasm');
-                        await tf.ready();
-                        const det = await faceLandmarksDetection.createDetector(
-                            faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
-                            { runtime: 'tfjs', refineLandmarks: true, maxFaces: 1 }
-                        );
-                        if (!cancelled) {
-                            detectorRef.current = det;
-                            setReady(true);
-                            setRuntime('tfjs');
-                            setLastError(null);
-                            zeroFaceFramesRef.current = 0;
-                        }
-                        return;
-                    } catch (e2) {
-                        if (!cancelled) setLastError('init failed (wasm): ' + (e2 as Error).message);
-                        return;
+                    await tf.setBackend('wasm');
+                    await tf.ready();
+                    const det = await faceLandmarksDetection.createDetector(
+                        faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
+                        { runtime: 'tfjs', refineLandmarks: true, maxFaces: 1 }
+                    );
+                    if (!cancelled) {
+                        detectorRef.current = det;
+                        setRuntime?.('tfjs');
+                        setReady?.(true);
+                        setLastError?.(null);
+                        zeroFaceFramesRef.current = 0;
                     }
+                } catch (e2: any) {
+                    if (!cancelled) setLastError?.('init failed (wasm): ' + (e2?.message || String(e2)));
                 }
-                if (!cancelled) setLastError('init failed: ' + (e as Error).message);
             }
         })();
 
         return () => { cancelled = true; stop(); };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
 
 
 
@@ -174,7 +189,8 @@ export function useEmotion(videoEl: HTMLVideoElement | null) {
                 setTracking(false);
                 setFaceCount(0);
             } else {
-                const faces = await detector.estimateFaces(videoEl, { flipHorizontal: true });
+                const input = getDetectorInput(videoEl);
+                const faces = await detectorRef.current!.estimateFaces(input, { flipHorizontal: false });
                 const count = faces?.length || 0;
                 setFaceCount(count);
 
