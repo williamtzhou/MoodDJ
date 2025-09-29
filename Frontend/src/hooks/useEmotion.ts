@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import * as tf from '@tensorflow/tfjs';
 import * as faceLandmarksDetection from '@tensorflow-models/face-landmarks-detection';
-import '@tensorflow/tfjs-backend-webgl';
 import '@tensorflow/tfjs-backend-wasm';
 
 export type Mood = 'happy' | 'neutral' | 'sad';
@@ -58,20 +57,20 @@ export function useEmotion(videoEl: HTMLVideoElement | null) {
     useEffect(() => {
         let cancelled = false;
 
-        async function initTFJS() {
+        async function initTFJSWasm() {
             try {
-                // @ts-ignore
+                // Load wasm binaries from CDN (pin exact version for reliability)
+                // @ts-ignore - available once wasm backend is loaded
                 tf.wasm?.setWasmPaths?.('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@4.15.0/dist/');
 
-                setLastError('init: tfjs starting…');
+                setLastError('init: tfjs(wasm)…');
                 await tf.ready();
 
-                try { await tf.setBackend('webgl'); } catch { }
-                if (tf.getBackend() !== 'webgl') {
-                    try { await tf.setBackend('wasm'); } catch { }
-                }
+                // Force WASM (avoid WebGL edge-cases in production)
+                await tf.setBackend('wasm');
                 await tf.ready();
-                setLastError(`init: tf backend=${tf.getBackend()}`);
+
+                setLastError(`init: tf backend=${tf.getBackend()}`); // should show "wasm"
 
                 const det = await faceLandmarksDetection.createDetector(
                     faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
@@ -85,14 +84,15 @@ export function useEmotion(videoEl: HTMLVideoElement | null) {
                 setLastError(null);
                 zeroFaceFramesRef.current = 0;
             } catch (e: any) {
-                if (!cancelled) setLastError(`init failed (tfjs): ${String(e?.message || e)}`);
+                if (!cancelled) setLastError(`init failed (wasm): ${String(e?.message || e)}`);
             }
         }
 
-        initTFJS();
+        initTFJSWasm();
         return () => { cancelled = true; stop(); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
 
     // Start loop when the <video> can play (also when restartEpoch bumps)
     useEffect(() => {
