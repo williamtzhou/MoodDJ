@@ -212,7 +212,10 @@ export default function App() {
                             width: '100%',
                             borderRadius: 12,
                             background: '#111',
-                            display: showPreview ? 'block' : 'none'
+                            visibility: showPreview ? 'visible' : 'hidden',
+                            opacity: showPreview ? 1 : 0,
+                            pointerEvents: showPreview ? 'auto' : 'none',
+                            height: showPreview ? undefined : 0,
                         }}
                     />
                     <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>

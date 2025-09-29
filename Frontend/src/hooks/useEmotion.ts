@@ -89,12 +89,21 @@ export function useEmotion(videoEl: HTMLVideoElement | null) {
     // Start loop when the <video> can play (also when restartEpoch bumps)
     useEffect(() => {
         if (!running || !videoEl) return;
-        const onCanPlay = () => { if (videoEl.readyState >= 2) kickOff(); };
-        videoEl.addEventListener('canplay', onCanPlay);
+
+        const onReady = () => kickOff();
+        videoEl.addEventListener('loadedmetadata', onReady);
+        videoEl.addEventListener('canplay', onReady);
+
+        // edge-case: if already ready
         if (videoEl.readyState >= 2) kickOff();
-        return () => videoEl.removeEventListener('canplay', onCanPlay);
+
+        return () => {
+            videoEl.removeEventListener('loadedmetadata', onReady);
+            videoEl.removeEventListener('canplay', onReady);
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [videoEl, running, ready, restartEpochRef.current]);
+    }, [videoEl, running, detectorRef.current]);
+
 
     function hasLiveStream(el: HTMLVideoElement | null) {
         const ms = (el?.srcObject as MediaStream | null) || null;
@@ -121,14 +130,19 @@ export function useEmotion(videoEl: HTMLVideoElement | null) {
     }
 
     function kickOff() {
-        if (!running || !videoEl || !detectorRef.current || !ready) return;
-        // wait for real dimensions (important after restart)
-        if (!(videoEl as HTMLVideoElement).videoWidth || !(videoEl as HTMLVideoElement).videoHeight) {
+        if (!running || !videoEl || !detectorRef.current) return;
+
+        const vw = (videoEl as HTMLVideoElement).videoWidth || 0;
+        const vh = (videoEl as HTMLVideoElement).videoHeight || 0;
+
+        if (vw === 0 || vh === 0) {
+            videoEl.play?.().catch(() => { });
             rafRef.current = requestAnimationFrame(kickOff);
             return;
         }
         loop();
     }
+
 
     const loop = async () => {
         if (!running) return;
