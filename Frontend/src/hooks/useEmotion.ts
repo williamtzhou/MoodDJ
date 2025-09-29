@@ -172,14 +172,24 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
         if (!running || !videoEl || !detectorRef.current) return;
 
         try {
-            const input = drawToOffscreen(videoEl);
-            if (!input) {
+            const inputCanvas = drawToOffscreen(videoEl);
+            if (!inputCanvas) {
                 rafRef.current = requestAnimationFrame(loop);
                 return;
             }
+            const inputTensor = tf.tidy(() =>
+                tf.browser.fromPixels(inputCanvas).toFloat()
+            );
 
-            // do not flip in the model; mirror only the preview via CSS if desired
-            const faces = await detectorRef.current.estimateFaces(input, { flipHorizontal: false });
+            let faces;
+            try {
+                faces = await detectorRef.current.estimateFaces(
+                    inputTensor as unknown as tf.Tensor3D,
+                    { flipHorizontal: false }
+                );
+            } finally {
+                inputTensor.dispose();
+            }
 
             const count = faces?.length || 0;
             setFaceCount(count);
