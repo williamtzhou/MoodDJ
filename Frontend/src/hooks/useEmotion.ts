@@ -60,9 +60,10 @@ export function useEmotion(videoEl: HTMLVideoElement | null) {
 
         async function initTFJS() {
             try {
-                setLastError('init: tfjs…');
-                // tf.wasm?.setWasmPaths?.('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@4.15.0/dist/');
+                // @ts-ignore
+                tf.wasm?.setWasmPaths?.('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@4.15.0/dist/');
 
+                setLastError('init: tfjs starting…');
                 await tf.ready();
 
                 try { await tf.setBackend('webgl'); } catch { }
@@ -76,6 +77,7 @@ export function useEmotion(videoEl: HTMLVideoElement | null) {
                     faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
                     { runtime: 'tfjs', refineLandmarks: true, maxFaces: 1 }
                 );
+
                 if (cancelled) return;
                 detectorRef.current = det;
                 setRuntime('tfjs');
@@ -91,9 +93,6 @@ export function useEmotion(videoEl: HTMLVideoElement | null) {
         return () => { cancelled = true; stop(); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
-
-
-
 
     // Start loop when the <video> can play (also when restartEpoch bumps)
     useEffect(() => {
