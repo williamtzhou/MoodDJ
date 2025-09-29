@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useEmotion, Mood } from './hooks/useEmotion';
 
-const BACKEND = `http://${window.location.hostname}:3001`;
+const BACKEND = import.meta.env.VITE_BACKEND_URL ?? `${window.location.protocol}//${window.location.hostname}:3001`;
 
 // Number input helper (smooth typing/backspace; clamp on blur/enter/arrow)
 function useNumberField(opts: {
