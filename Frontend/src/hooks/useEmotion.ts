@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import * as tf from '@tensorflow/tfjs';
 import * as faceLandmarksDetection from '@tensorflow-models/face-landmarks-detection';
 import * as faceapi from 'face-api.js';
 
@@ -107,32 +106,30 @@ export function useEmotion(videoEl: HTMLVideoElement | null) {
     useEffect(() => {
         let cancelled = false;
 
-        async function initDetector(desired: 'tfjs' | 'mediapipe') {
+        async function initDetector() {
             try {
-                if (desired === 'tfjs') {
-                    await tf.ready();
-                    try { await tf.setBackend('webgl'); } catch { }
-                }
                 const detector = await faceLandmarksDetection.createDetector(
                     faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
-                    desired === 'tfjs'
-                        ? { runtime: 'tfjs', refineLandmarks: true, maxFaces: 1 }
-                        : { runtime: 'mediapipe', refineLandmarks: true, maxFaces: 1, solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh' }
+                    {
+                        runtime: 'mediapipe',
+                        refineLandmarks: true,
+                        maxFaces: 1,
+                        // CDN that serves the solution files (works on Vercel)
+                        solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh',
+                    }
                 );
                 if (cancelled) return;
                 detectorRef.current = detector;
-                setRuntime(desired);
+                setRuntime('mediapipe');     // if you track this
                 setReady(true);
                 setLastError(null);
                 zeroFaceFramesRef.current = 0;
             } catch (e: any) {
-                if (cancelled) return;
-                setLastError(`init(${desired}): ${String(e?.message || e)}`);
-                if (desired === 'tfjs') initDetector('mediapipe');
+                if (!cancelled) setLastError(`init(mediapipe): ${String(e?.message || e)}`);
             }
         }
 
-        initDetector('tfjs');
+        initDetector();
         return () => { cancelled = true; stop(); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
