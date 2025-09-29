@@ -22,28 +22,38 @@ const ALLOW = new Set([
     'face_mesh_solution_simd_wasm_bin.wasm',
 ]);
 
-app.get('/mp/:file', async (req, res) => {
+app.use('/mp', (req, res, next) => {
+    res.set('Access-Control-Allow-Origin', '*');
+    next();
+});
+
+app.get('/mp/ping', (_req, res) => res.json({ ok: true }));
+
+app.get('/mp/:file(*)', async (req, res) => {
     try {
         const file = req.params.file;
-        if (!ALLOW.has(file)) return res.status(404).end();
+        if (!MP_ALLOW.has(file)) {
+            console.warn('MP proxy 404 (not allowed):', file);
+            return res.status(404).end();
+        }
 
         const upstream = `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@${MP_VERSION}/${file}`;
         const r = await fetch(upstream);
+
         if (!r.ok) {
             const text = await r.text().catch(() => '');
+            console.warn('MP upstream error', r.status, upstream);
             return res.status(r.status).send(text);
         }
 
-        res.set('Access-Control-Allow-Origin', '*');
-        res.set('Cross-Origin-Resource-Policy', 'cross-origin');
-        res.set('Cache-Control', 'public, max-age=31536000, immutable');
-
         const type = file.endsWith('.wasm') ? 'application/wasm' : 'application/javascript';
         res.type(type);
+        res.set('Cache-Control', 'public, max-age=31536000, immutable');
+        res.set('Cross-Origin-Resource-Policy', 'cross-origin');
 
-        // Stream to the client
         r.body.pipe(res);
     } catch (e) {
+        console.error('MP proxy error', e);
         res.status(500).send('mp proxy error');
     }
 });
