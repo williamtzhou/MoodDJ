@@ -32,7 +32,7 @@ app.get('/mp/ping', (_req, res) => res.json({ ok: true }));
 app.get('/mp/:file(*)', async (req, res) => {
     try {
         const file = req.params.file;
-        if (!MP_ALLOW.has(file)) {
+        if (!ALLOW.has(file)) {
             console.warn('MP proxy 404 (not allowed):', file);
             return res.status(404).end();
         }
