@@ -60,18 +60,15 @@ export function useEmotion(videoEl: HTMLVideoElement | null) {
 
         async function initTFJS() {
             try {
-                setLastError('init: tfjs(webgl)…');
+                setLastError('init: tfjs…');
+                // tf.wasm?.setWasmPaths?.('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@4.15.0/dist/');
+
                 await tf.ready();
-                // Try WebGL first (fast on most devices)
+
                 try { await tf.setBackend('webgl'); } catch { }
                 if (tf.getBackend() !== 'webgl') {
-                    // Fall back to WASM (very reliable)
                     try { await tf.setBackend('wasm'); } catch { }
                 }
-
-                // // @ts-ignore
-                // await tf.wasm?.setWasmPaths?.('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@4.15.0/dist/');
-
                 await tf.ready();
                 setLastError(`init: tf backend=${tf.getBackend()}`);
 
@@ -79,7 +76,6 @@ export function useEmotion(videoEl: HTMLVideoElement | null) {
                     faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
                     { runtime: 'tfjs', refineLandmarks: true, maxFaces: 1 }
                 );
-
                 if (cancelled) return;
                 detectorRef.current = det;
                 setRuntime('tfjs');
@@ -87,8 +83,7 @@ export function useEmotion(videoEl: HTMLVideoElement | null) {
                 setLastError(null);
                 zeroFaceFramesRef.current = 0;
             } catch (e: any) {
-                if (cancelled) return;
-                setLastError(`init failed (tfjs): ${String(e?.message || e)}`);
+                if (!cancelled) setLastError(`init failed (tfjs): ${String(e?.message || e)}`);
             }
         }
 
@@ -96,6 +91,7 @@ export function useEmotion(videoEl: HTMLVideoElement | null) {
         return () => { cancelled = true; stop(); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
 
 
 
