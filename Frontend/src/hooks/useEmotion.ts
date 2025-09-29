@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as tf from '@tensorflow/tfjs';
 import * as faceLandmarksDetection from '@tensorflow-models/face-landmarks-detection';
+import { setWasmPaths } from '@tensorflow/tfjs-backend-wasm';
 import '@tensorflow/tfjs-backend-wasm';
 
 export type Mood = 'happy' | 'neutral' | 'sad';
@@ -23,6 +24,8 @@ type Calib = {
 };
 
 const CALIB_KEY = 'mooddj_calib_v2';
+
+setWasmPaths('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@4.22.0/dist/');
 
 export function useEmotion(videoEl: HTMLVideoElement | null) {
     const [mood, setMood] = useState<Mood>('neutral');
@@ -53,45 +56,58 @@ export function useEmotion(videoEl: HTMLVideoElement | null) {
         } catch { }
     }, []);
 
-    // Init detector with TFJS → MediaPipe fallback
+    // Init detector with TFJS WASM
     useEffect(() => {
         let cancelled = false;
 
-        async function initTFJSWasm() {
+        (async () => {
             try {
-                // Load wasm binaries from CDN (pin exact version for reliability)
-                // @ts-ignore - available once wasm backend is loaded
-                tf.wasm?.setWasmPaths?.('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@4.15.0/dist/');
-
-                setLastError('init: tfjs(wasm)…');
                 await tf.ready();
-
-                // Force WASM (avoid WebGL edge-cases in production)
                 await tf.setBackend('wasm');
                 await tf.ready();
-
-                setLastError(`init: tf backend=${tf.getBackend()}`); // should show "wasm"
+                try { await tf.removeBackend('webgl'); } catch { }
+                try { await tf.removeBackend('webgpu'); } catch { }
 
                 const det = await faceLandmarksDetection.createDetector(
                     faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
                     { runtime: 'tfjs', refineLandmarks: true, maxFaces: 1 }
                 );
-
-                if (cancelled) return;
                 detectorRef.current = det;
-                setRuntime('tfjs');
+                if (cancelled) return;
                 setReady(true);
+                setRuntime('tfjs');
                 setLastError(null);
                 zeroFaceFramesRef.current = 0;
             } catch (e: any) {
-                if (!cancelled) setLastError(`init failed (wasm): ${String(e?.message || e)}`);
+                if (String(e?.message || e).includes('wasm') || String(e).includes('404')) {
+                    setWasmPaths('https://unpkg.com/@tensorflow/tfjs-backend-wasm@4.22.0/dist/');
+                    try {
+                        await tf.setBackend('wasm');
+                        await tf.ready();
+                        const det = await faceLandmarksDetection.createDetector(
+                            faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
+                            { runtime: 'tfjs', refineLandmarks: true, maxFaces: 1 }
+                        );
+                        if (!cancelled) {
+                            detectorRef.current = det;
+                            setReady(true);
+                            setRuntime('tfjs');
+                            setLastError(null);
+                            zeroFaceFramesRef.current = 0;
+                        }
+                        return;
+                    } catch (e2) {
+                        if (!cancelled) setLastError('init failed (wasm): ' + (e2 as Error).message);
+                        return;
+                    }
+                }
+                if (!cancelled) setLastError('init failed: ' + (e as Error).message);
             }
-        }
+        })();
 
-        initTFJSWasm();
         return () => { cancelled = true; stop(); };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
 
 
     // Start loop when the <video> can play (also when restartEpoch bumps)
