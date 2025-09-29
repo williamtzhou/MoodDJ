@@ -22,7 +22,7 @@ type Calib = {
     sad?: Features;
 };
 
-const MODEL_URL = 'https://github.com/justadudewhohacks/face-api.js.git';
+const MODEL_URL = 'https://justadudewhohacks.github.io/face-api.js/models';
 
 const CALIB_KEY = 'mooddj_calib_v2';
 
