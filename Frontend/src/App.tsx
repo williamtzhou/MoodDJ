@@ -163,7 +163,10 @@ export default function App() {
     const startCamera = async () => {
         if (cameraOn) return;
         try {
-            const s = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+            const s = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+                audio: false,
+            });
             setStream(s);
             setCameraOn(true);
         } catch {

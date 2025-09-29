@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import * as tf from '@tensorflow/tfjs';
 import * as faceLandmarksDetection from '@tensorflow-models/face-landmarks-detection';
+import '@tensorflow/tfjs-backend-webgl';
+import '@tensorflow/tfjs-backend-wasm';
 
 export type Mood = 'happy' | 'neutral' | 'sad';
 type KP = { x: number; y: number; z?: number };
@@ -56,37 +58,45 @@ export function useEmotion(videoEl: HTMLVideoElement | null) {
     useEffect(() => {
         let cancelled = false;
 
-        async function initMP() {
+        async function initTFJS() {
             try {
-                setLastError('init: mediapipe wasm…');
+                setLastError('init: tfjs(webgl)…');
+                await tf.ready();
+                // Try WebGL first (fast on most devices)
+                try { await tf.setBackend('webgl'); } catch { }
+                if (tf.getBackend() !== 'webgl') {
+                    // Fall back to WASM (very reliable)
+                    try { await tf.setBackend('wasm'); } catch { }
+                }
+
+                // // @ts-ignore
+                // await tf.wasm?.setWasmPaths?.('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@4.15.0/dist/');
+
+                await tf.ready();
+                setLastError(`init: tf backend=${tf.getBackend()}`);
+
                 const det = await faceLandmarksDetection.createDetector(
                     faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
-                    {
-                        runtime: 'mediapipe',
-                        refineLandmarks: true,
-                        maxFaces: 1,
-                        // Pin version; avoids flaky CDN metadata + prefers non-SIMD path under non-isolated pages
-                        solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4',
-                    }
+                    { runtime: 'tfjs', refineLandmarks: true, maxFaces: 1 }
                 );
+
                 if (cancelled) return;
                 detectorRef.current = det;
-                setRuntime('mediapipe');
+                setRuntime('tfjs');
                 setReady(true);
                 setLastError(null);
                 zeroFaceFramesRef.current = 0;
             } catch (e: any) {
                 if (cancelled) return;
-                setLastError(`init failed: ${String(e?.message || e)}`);
-                // Retry in a bit (CDN hiccup/network)
-                setTimeout(() => { if (!cancelled) initMP(); }, 1500);
+                setLastError(`init failed (tfjs): ${String(e?.message || e)}`);
             }
         }
 
-        initMP();
+        initTFJS();
         return () => { cancelled = true; stop(); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
 
 
     // Start loop when the <video> can play (also when restartEpoch bumps)
