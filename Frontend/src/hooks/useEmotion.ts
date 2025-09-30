@@ -33,12 +33,22 @@ function scoreFromLandmarks(_pts: any): { mood: Mood; scores: Scores } {
 
 function loadScriptOnce(src: string): Promise<void> {
     return new Promise((resolve, reject) => {
+        document
+            .querySelectorAll<HTMLScriptElement>('script[data-mediapipe]')
+            .forEach(s => {
+                if (s.src.includes('simd_wasm_bin')) s.remove();
+            });
+
+        // already loaded?
         const ex = document.querySelector<HTMLScriptElement>(`script[data-src="${src}"]`);
         if (ex && (ex as any)._loaded) return resolve();
+
         const s = document.createElement('script');
         s.src = src;
-        s.async = false; s.defer = false;
+        s.async = false;
+        s.defer = false;
         s.setAttribute('data-src', src);
+        s.setAttribute('data-mediapipe', '1');
         s.onload = () => { (s as any)._loaded = true; resolve(); };
         s.onerror = () => reject(new Error(`Failed to load ${src}`));
         document.head.appendChild(s);
@@ -54,15 +64,11 @@ async function ensureMediaPipe(): Promise<any> {
     await loadScriptOnce(`${MP_BASE}/face_mesh.js`);
     await loadScriptOnce(`${MP_BASE}/face_mesh_solution_packed_assets_loader.js`);
 
-    // Try SIMD first, fall back to non-SIMD
-    try {
-        await loadScriptOnce(`${MP_BASE}/face_mesh_solution_simd_wasm_bin.js`);
-    } catch {
-        await loadScriptOnce(`${MP_BASE}/face_mesh_solution_wasm_bin.js`);
-    }
+    // only non-SIMD runtime
+    await loadScriptOnce(`${MP_BASE}/face_mesh_solution_wasm_bin.js`);
 
     const FaceMeshCtor = (window as any).FaceMesh;
-    if (!FaceMeshCtor) throw new Error('FaceMesh global not loaded after scripts');
+    if (!FaceMeshCtor) throw new Error('FaceMesh global not loaded');
     return FaceMeshCtor;
 }
 
@@ -179,7 +185,11 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
         try {
             await mpRef.current.send({ image: videoEl });
         } catch (e: any) {
-            setLastError('loop error: ' + (e?.message || String(e)));
+            setLastError(`loop error: ${(e as Error).message || e}`);
+            setRunning(false);
+            await mpRef.current?.close?.().catch(() => { });
+            mpRef.current = null;
+            return;
         }
         rafRef.current = requestAnimationFrame(loop);
     }
