@@ -3,8 +3,11 @@ import express from 'express';
 import cors from 'cors';
 import fetch from 'node-fetch';
 import fs from 'fs';
+import cookieParser from 'cookie-parser';
 
-const TOKENS_PATH = process.env.TOKENS_PATH || './tokens.json';
+app.use(cookieParser());
+
+// const TOKENS_PATH = process.env.TOKENS_PATH || './tokens.json';
 
 const app = express();
 app.use(express.json());
@@ -89,7 +92,7 @@ const ALLOWED_MOODS = new Set(Object.keys(MOOD_SOURCE));
  * Minimal auth/token plumbing
  * ---------------------------------------------------------------- */
 const stateStore = new Map();
-const tokenStore = loadTokens();
+// const tokenStore = loadTokens();
 
 const scopes = [
     'user-read-email',
@@ -128,6 +131,68 @@ function originAllowed(reqOrigin) {
     });
 }
 
+// Remove TOKENS_PATH, loadTokens/saveTokens, tokenStore, setTokens() etc.
+
+// Read tokens from signed cookie
+function getTokensFromReq(req) {
+    try { return JSON.parse(req.signedCookies.sp || '{}'); } catch { return {}; }
+}
+
+function setTokensCookie(res, { access_token, refresh_token, expires_at }) {
+    const payload = JSON.stringify({ access_token, refresh_token, expires_at });
+    res.cookie('sp', payload, {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: true,           // set false only for pure http://localhost testing
+        signed: true,
+        maxAge: 30 * 24 * 3600 * 1000,
+    });
+}
+
+async function ensureAccessToken(req, res) {
+    const t = getTokensFromReq(req);
+    if (t.access_token && Date.now() < t.expires_at) return t.access_token;
+    if (!t.refresh_token) throw new Error('Not authorized');
+
+    const body = new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: t.refresh_token,
+        client_id: SPOTIFY_CLIENT_ID,
+        client_secret: SPOTIFY_CLIENT_SECRET,
+    });
+
+    const r = await fetch('https://accounts.spotify.com/api/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error('Refresh failed: ' + JSON.stringify(data));
+
+    const next = {
+        access_token: data.access_token,
+        refresh_token: t.refresh_token, // keep unless Spotify returns a new one
+        expires_at: Date.now() + (data.expires_in * 1000) - 10_000,
+    };
+    setTokensCookie(res, next);
+    return next.access_token;
+}
+
+async function spotifyFetchWithReq(req, res, path, { method = 'GET', body } = {}) {
+    const base = 'https://api.spotify.com/v1';
+    const url = /^https?:\/\//i.test(path) ? path : `${base}${path}`;
+    const token = await ensureAccessToken(req, res);
+    const r = await fetch(url, {
+        method,
+        headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+        body: body ? JSON.stringify(body) : undefined,
+    });
+    let data = null; try { data = await r.json(); } catch { }
+    if (!r.ok) throw new Error(`${method} ${url} failed: ${r.status} ${JSON.stringify(data)}`);
+    return data;
+}
+
+
 const corsMiddleware = cors({
     credentials: true,
     origin: (origin, cb) => {
@@ -141,19 +206,19 @@ const corsMiddleware = cors({
 app.use(corsMiddleware);
 app.options('*', corsMiddleware);
 
-function loadTokens() {
-    try { return JSON.parse(fs.readFileSync(TOKENS_PATH, 'utf8')); } catch { return {}; }
-}
-function saveTokens(obj) {
-    try { fs.writeFileSync(TOKENS_PATH, JSON.stringify(obj, null, 2)); } catch { }
-}
+// function loadTokens() {
+//     try { return JSON.parse(fs.readFileSync(TOKENS_PATH, 'utf8')); } catch { return {}; }
+// }
+// function saveTokens(obj) {
+//     try { fs.writeFileSync(TOKENS_PATH, JSON.stringify(obj, null, 2)); } catch { }
+// }
 
-async function setTokens({ access_token, refresh_token, expires_at }) {
-    tokenStore.access_token = access_token;
-    if (refresh_token) tokenStore.refresh_token = refresh_token;
-    tokenStore.expires_at = expires_at;
-    saveTokens(tokenStore);
-}
+// async function setTokens({ access_token, refresh_token, expires_at }) {
+//     tokenStore.access_token = access_token;
+//     if (refresh_token) tokenStore.refresh_token = refresh_token;
+//     tokenStore.expires_at = expires_at;
+//     saveTokens(tokenStore);
+// }
 
 app.use(cors({
     credentials: true,
@@ -204,15 +269,16 @@ app.get('/callback', async (req, res) => {
     if (!r.ok) return res.status(500).json(data);
 
     const expires_at = Date.now() + (data.expires_in * 1000) - 10_000;
-    await setTokens({
+    setTokensCookie(res, {
         access_token: data.access_token,
-        refresh_token: data.refresh_token, // may be undefined on re-consent; setTokens keeps old
+        refresh_token: data.refresh_token,
         expires_at,
     });
 
     const return_to = (req.query.return_to || process.env.FRONTEND_URL || '').replace(/\/$/, '');
     res.redirect(`${return_to}/?linked=1`);
 });
+
 
 async function ensureAccessToken() {
     if (tokenStore.access_token && Date.now() < tokenStore.expires_at) {
@@ -238,27 +304,6 @@ async function ensureAccessToken() {
         expires_at: Date.now() + (data.expires_in * 1000) - 10_000,
     });
     return tokenStore.access_token;
-}
-
-async function spotifyFetch(path, { method = 'GET', token, body } = {}) {
-    const base = 'https://api.spotify.com/v1';
-    const isAbsolute = /^https?:\/\//i.test(path);
-    const url = isAbsolute ? path : `${base}${path}`;
-    const r = await fetch(url, {
-        method,
-        headers: {
-            Authorization: `Bearer ${token || (await ensureAccessToken())}`,
-            ...(body ? { 'Content-Type': 'application/json' } : {}),
-        },
-        body: body ? JSON.stringify(body) : undefined,
-    });
-    let data = null;
-    try { data = await r.json(); } catch { }
-    if (!r.ok) {
-        console.warn('Spotify API error:', method, url, r.status, data || null);
-        throw new Error(`${method} ${url} failed: ${r.status}`);
-    }
-    return data;
 }
 
 /** ----------------------------------------------------------------
@@ -358,23 +403,35 @@ async function getTrackUrisFromPlaylist(playlistId, max = 500) {
 /** ----------------------------------------------------------------
  * Public endpoints used by the frontend
  * ---------------------------------------------------------------- */
-app.get('/me', async (_req, res) => {
-    try {
-        const r = await spotifyFetch('/me');
-        res.json({ id: r.id, display_name: r.display_name });
-    } catch (e) {
-        res.status(401).json({ error: String(e) });
-    }
+app.get('/me', async (req, res) => {
+    try { const me = await spotifyFetchWithReq(req, res, '/me'); res.json({ id: me.id, display_name: me.display_name }); }
+    catch (e) { res.status(401).json({ error: String(e) }); }
 });
 
-app.get('/playlist', async (_req, res) => {
+app.get('/playlist', async (req, res) => {
     try {
+        // per-user playlist
+        async function ensurePlaylistByName(name = 'MoodDJ') {
+            let next = '/me/playlists?limit=50';
+            while (next) {
+                const page = await spotifyFetchWithReq(req, res, next);
+                const found = page.items.find(p => p.name === name);
+                if (found) return { id: found.id, url: found.external_urls?.spotify ?? null, uri: found.uri, name: found.name };
+                next = page.next;
+            }
+            const me = await spotifyFetchWithReq(req, res, '/me');
+            const created = await spotifyFetchWithReq(req, res, `/users/${encodeURIComponent(me.id)}/playlists`, {
+                method: 'POST',
+                body: { name, public: true, description: 'Auto-created by MoodDJ' },
+            });
+            return { id: created.id, url: created.external_urls?.spotify ?? null, uri: created.uri, name: created.name };
+        }
         const pl = await ensurePlaylistByName('MoodDJ');
-        res.json(pl); // { id, url, uri, name }
-    } catch (e) {
-        res.status(500).json({ error: String(e) });
-    }
+        res.json(pl);
+    } catch (e) { res.status(500).json({ error: String(e) }); }
 });
+
+
 
 /**
  * POST /mood

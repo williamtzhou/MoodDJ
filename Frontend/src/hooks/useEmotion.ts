@@ -130,54 +130,57 @@ function extractMetrics(pts: Pt[]) {
 }
 
 function toScores(metrics: ReturnType<typeof extractMetrics>, calib: Calib): Scores {
-    const { mouthWidth, mouthOpen, eyeOpen, smileUp } = metrics;
+  const { mouthWidth, mouthOpen, eyeOpen, smileUp } = metrics;
 
-    // If no calibration yet, use gentle defaults taken from typical normalized values.
-    const base = calib.base ?? {
-        eyeGap: 0.055,
-        mouthOpen: 0.025,
-        smileUp: 0.00,
-        mouthWidth: 0.48,
-    };
+  const base = calib.base ?? {
+    eyeGap: 0.055,
+    mouthOpen: 0.025,
+    smileUp: 0.00,
+    mouthWidth: 0.48,
+  };
 
-    // Features relative to baseline.
-    const dSmile = smileUp - base.smileUp;
-    const dOpen = mouthOpen - base.mouthOpen;
+  const dSmile = smileUp - base.smileUp;
+  const dOpen  = mouthOpen - base.mouthOpen;
 
-    // Happy: mouth corners lifted (dSmile↑) and slightly open (dOpen mildly ↑).
-    const happyRaw =
-        0.75 * sigmoid(dSmile * 60) +
-        0.25 * sigmoid((dOpen) * 60);
+  // --- Neutral "dead-zone" around baseline ------------------------
+  // If mouth upturn and openness are close to baseline, strongly prefer neutral.
+  const TH_SMILE = 0.010; // widen these to make neutral easier
+  const TH_OPEN  = 0.010;
+  const inNeutralBand =
+    Math.abs(dSmile) < TH_SMILE && Math.abs(dOpen) < TH_OPEN;
 
-    // Sad: corners down (dSmile↓) and closed mouth/eyes (dOpen↓, eyeOpen↓).
-    const sadRaw =
-        0.7 * sigmoid((-dSmile) * 60) +
-        0.2 * sigmoid((base.mouthOpen - mouthOpen) * 60) +
-        0.1 * sigmoid((base.eyeGap - eyeOpen) * 80);
+  // Gaussian falloff from baseline so neutral decays smoothly.
+  const zSmile = dSmile / TH_SMILE;
+  const zOpen  = dOpen  / TH_OPEN;
+  const neutralRaw = Math.exp(-0.5 * (zSmile * zSmile * 0.9 + zOpen * zOpen * 0.6))
+                   * (inNeutralBand ? 1.15 : 1); // boost when inside band
 
-    // Neutral favors being near baseline on both mouth open and smile.
-    const neutralRaw = clamp01(
-        1 - 0.6 * Math.min(1, Math.abs(dSmile) * 120)
-        - 0.4 * Math.min(1, Math.abs(dOpen) * 120)
-    );
+  // --- Happier/sadder with gentler slopes -------------------------
+  const S1 = 35;  // smaller = gentler ramp
+  const S2 = 25;
 
-    let happy = happyRaw, sad = sadRaw, neutral = neutralRaw;
+  // Happy: corner upturn + a little openness
+  const happyRaw =
+    0.75 * (1 / (1 + Math.exp(-dSmile * S1))) +
+    0.25 * (1 / (1 + Math.exp( -(dOpen) * S2)));
 
-    // Optional flip if the user reports neutral/sad feel swapped.
-    if (calib.swapNS) {
-        const t = neutral;
-        neutral = sad;
-        sad = t;
-    }
+  // Sad: corner downturn + slight closure + eye closure
+  const sadRaw =
+    0.65 * (1 / (1 + Math.exp( (dSmile) * S1))) +          // inverse of happySmile
+    0.20 * (1 / (1 + Math.exp( (dOpen - 0.002) * S2))) +   // more closed → sad
+    0.15 * (1 / (1 + Math.exp( ((eyeOpen - base.eyeGap) + 0.002) * 80)));
 
-    // Normalize to sum 1 and clamp.
-    const sum = happy + neutral + sad || 1;
-    return {
-        happy: clamp01(happy / sum),
-        neutral: clamp01(neutral / sum),
-        sad: clamp01(sad / sum),
-    };
+  let happy = happyRaw, sad = sadRaw, neutral = neutralRaw;
+  if (calib.swapNS) { const t = neutral; neutral = sad; sad = t; }
+
+  const sum = happy + neutral + sad || 1;
+  return {
+    happy: Math.min(1, Math.max(0, happy / sum)),
+    neutral: Math.min(1, Math.max(0, neutral / sum)),
+    sad: Math.min(1, Math.max(0, sad / sum)),
+  };
 }
+
 
 /* --------------------------- hook ------------------------------- */
 

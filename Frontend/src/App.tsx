@@ -150,6 +150,7 @@ export default function App() {
                 await fetch(`${BACKEND}/mood/tick`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
                     body: JSON.stringify({ label: moodRef.current, keep: size, count: perTick }),
                 });
             } catch { } finally { inFlightRef.current = false; }
@@ -188,6 +189,7 @@ export default function App() {
         await fetch(`${BACKEND}/mood`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
             body: JSON.stringify({ label: moodRef.current, size }),
         });
     };
@@ -196,6 +198,7 @@ export default function App() {
         await fetch(`${BACKEND}/mood/tick`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
             body: JSON.stringify({ label: moodRef.current, keep: size, count: 1 }),
         });
     };
