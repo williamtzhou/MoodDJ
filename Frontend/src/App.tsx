@@ -31,7 +31,6 @@ function useNumberField(opts: {
     };
 
     const onChange = (e: React.ChangeEvent<HTMLInputElement>) => setText(e.target.value);
-
     const onBlur = () => commit();
 
     const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -115,6 +114,8 @@ export default function App() {
     const [playlist, setPlaylist] = useState<{ id: string; url: string | null; uri: string; name: string } | null>(null);
     const [mood, setMood] = useState<Mood>('neutral');
 
+    const [showStatus, setShowStatus] = useState(true); // ← collapsible status
+
     const moodRef = useRef<Mood>('neutral');
     useEffect(() => {
         moodRef.current = mood;
@@ -157,9 +158,6 @@ export default function App() {
         if (detectedMood) setMood(detectedMood as Mood);
     }, [detectedMood]);
 
-    /**
-     * Binds/unbinds the current MediaStream to the video element and starts/stops emotion detection.
-     */
     useEffect(() => {
         if (!videoEl) return;
 
@@ -191,7 +189,6 @@ export default function App() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [videoEl, stream]);
 
-    /** Initiates Spotify auth handshake. */
     const linkSpotify = () => {
         if (!BACKEND) {
             alert('Backend URL is not configured. Set VITE_BACKEND_URL.');
@@ -201,9 +198,6 @@ export default function App() {
         window.location.href = `${BACKEND}/login?return_to=${returnTo}`;
     };
 
-    /**
-     * Checks Spotify link status; refreshes on visibility change and post-login redirect.
-     */
     useEffect(() => {
         const check = async () => {
             try {
@@ -230,9 +224,6 @@ export default function App() {
         return () => document.removeEventListener('visibilitychange', onVis);
     }, []);
 
-    /**
-     * Loads or creates the target playlist after successful link.
-     */
     useEffect(() => {
         const load = async () => {
             try {
@@ -248,9 +239,6 @@ export default function App() {
         if (new URLSearchParams(window.location.search).get('linked') === '1') load();
     }, [linked]);
 
-    /**
-     * Periodically adds tracks to the playlist while linked and camera enabled.
-     */
     useEffect(() => {
         if (intervalRef.current != null) {
             clearInterval(intervalRef.current);
@@ -283,7 +271,6 @@ export default function App() {
         };
     }, [linked, cameraOn, intervalMs, perTick, size]);
 
-    /** Starts the user-facing camera and attaches the MediaStream. */
     const startCamera = async () => {
         if (cameraOn) return;
         try {
@@ -298,7 +285,6 @@ export default function App() {
         }
     };
 
-    /** Stops emotion detection and deactivates the MediaStream. */
     const stopCamera = () => {
         if (!cameraOn) return;
         stopEmotion();
@@ -307,7 +293,6 @@ export default function App() {
         setCameraOn(false);
     };
 
-    /** Replaces the playlist contents with selections for the current mood. */
     const fillPlaylist = async () => {
         if (!linked) {
             alert('Link Spotify first');
@@ -320,7 +305,6 @@ export default function App() {
         });
     };
 
-    /** Adds one new track for the current mood, respecting the keep size. */
     const addOne = async () => {
         if (!linked) {
             alert('Link Spotify first');
@@ -333,153 +317,252 @@ export default function App() {
         });
     };
 
+    // ====== Dark theme tokens ======
+    const colors = {
+        bg: '#0b0b0f',
+        card: '#121219',
+        border: '#2a2a30',
+        text: '#e5e7eb',
+        textMuted: '#a1a1aa',
+        btn: '#1f2937',
+        btnBorder: '#374151',
+        btnHover: '#263244',
+        barTrack: '#2a2a32',
+        happy: '#f59e0b',   // yellowish-orange
+        neutral: '#9ca3af', // muted gray
+        sad: '#2563eb',     // deep blue
+    };
+
+    const buttonStyle: React.CSSProperties = {
+        padding: '8px 12px',
+        borderRadius: 8,
+        border: `1px solid ${colors.btnBorder}`,
+        background: colors.btn,
+        color: colors.text,
+        cursor: 'pointer',
+    };
+
     return (
-        <div style={{ maxWidth: 980, margin: '2rem auto', fontFamily: 'Inter, system-ui, sans-serif' }}>
-            <h1>🎭 Mood DJ — Editorial Mode</h1>
-
-            <section style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '1rem' }}>
-                <div>
-                    <video
-                        ref={videoRef}
-                        autoPlay
-                        playsInline
-                        muted
-                        style={{
-                            width: '100%',
-                            borderRadius: 12,
-                            background: '#111',
-                            visibility: showPreview ? 'visible' : 'hidden',
-                            opacity: showPreview ? 1 : 0,
-                            pointerEvents: showPreview ? 'auto' : 'none',
-                            height: showPreview ? undefined : 0,
-                        }}
-                    />
-                    <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        {!cameraOn
-                            ? <button onClick={startCamera}>Start Camera</button>
-                            : <button onClick={stopCamera}>Stop Camera</button>}
-                        <button onClick={() => setShowPreview(v => !v)}>
-                            {showPreview ? 'Hide Preview' : 'Show Preview'}
-                        </button>
-                    </div>
-
-                    {/* Calibration controls (only when tracking) */}
-                    {tracking && (
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-                            <button onClick={() => captureCalibration('neutral')}>Set Neutral</button>
-                            <button onClick={() => captureCalibration('happy')}>Set Happy</button>
-                            <button onClick={() => captureCalibration('sad')}>Set Sad</button>
-                            <button onClick={swapNeutralSad} title="If your neutral/sad feel swapped">Swap Neutral ↔ Sad</button>
-                            <button onClick={clearCalibration} style={{ opacity: 0.7 }}>Clear Calib</button>
-                        </div>
-                    )}
-
-                    <ul style={{ marginTop: 10 }}>
-                        <li>Detector: {ready ? 'ready' : 'loading'} {emoRunning ? '(running)' : ''}</li>
-                        <li>Tracking face: {tracking ? `yes (${faceCount})` : 'no'}</li>
-                        {lastError && <li style={{ color: 'crimson' }}>Err: {lastError}</li>}
-                    </ul>
+        <div style={{ minHeight: '100vh', background: colors.bg, color: colors.text }}>
+            <div style={{ maxWidth: 980, margin: '0 auto', padding: '28px 16px', fontFamily: 'Inter, system-ui, sans-serif' }}>
+                {/* Centered title */}
+                <div style={{ textAlign: 'center', marginBottom: 18 }}>
+                    <h1 style={{ margin: 0, fontSize: 36 }}>🎭 Mood DJ 🎭</h1>
+                    <div style={{ marginTop: 6, color: colors.textMuted, fontSize: 14 }}>by William Zhou</div>
                 </div>
 
-                <div>
-                    <div style={{ display: 'inline-flex', gap: 8 }}>
-                        <span style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #ccc', background: '#e5e7eb' }}>
-                            {mood}
-                        </span>
-                    </div>
+                <section style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '16px' }}>
+                    {/* Left: Camera + controls + Scores */}
+                    <div>
+                        <video
+                            ref={videoRef}
+                            autoPlay
+                            playsInline
+                            muted
+                            style={{
+                                width: '100%',
+                                borderRadius: 12,
+                                background: '#0b0b0b',
+                                visibility: showPreview ? 'visible' : 'hidden',
+                                opacity: showPreview ? 1 : 0,
+                                pointerEvents: showPreview ? 'auto' : 'none',
+                                height: showPreview ? undefined : 0,
+                            }}
+                        />
+                        <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                            {!cameraOn ? (
+                                <button style={buttonStyle} onClick={startCamera}>Start Camera</button>
+                            ) : (
+                                <button style={buttonStyle} onClick={stopCamera}>Stop Camera</button>
+                            )}
+                            <button style={buttonStyle} onClick={() => setShowPreview(v => !v)}>
+                                {showPreview ? 'Hide Preview' : 'Show Preview'}
+                            </button>
+                        </div>
 
-                    <div style={{ marginTop: 12, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-                        <label>
-                            Size:&nbsp;
-                            <input
-                                type="text"
-                                inputMode="numeric"
-                                value={sizeField.text}
-                                onChange={sizeField.onChange}
-                                onBlur={sizeField.onBlur}
-                                onKeyDown={sizeField.onKeyDown}
-                                style={{ width: 72 }}
-                            />
-                        </label>
-
-                        <label>
-                            Every:&nbsp;
-                            <input
-                                type="text"
-                                inputMode="numeric"
-                                value={intervalField.text}
-                                onChange={intervalField.onChange}
-                                onBlur={intervalField.onBlur}
-                                onKeyDown={intervalField.onKeyDown}
-                                style={{ width: 72 }}
-                            />s
-                        </label>
-
-                        <label>
-                            Add per tick:&nbsp;
-                            <input
-                                type="text"
-                                inputMode="numeric"
-                                value={perTickField.text}
-                                onChange={perTickField.onChange}
-                                onBlur={perTickField.onBlur}
-                                onKeyDown={perTickField.onKeyDown}
-                                style={{ width: 60 }}
-                            />
-                        </label>
-
-                        <button onClick={fillPlaylist} disabled={!linked}>Fill / Replace Playlist</button>
-                        <button onClick={addOne} disabled={!linked}>Add One</button>
-                        <button onClick={linkSpotify} disabled={linked} title={linked ? 'Already linked' : ''}>
-                            {linked ? 'Link Spotify ✔' : 'Link Spotify'}
-                        </button>
-
-                        {playlist?.url && (
-                            <a
-                                href={playlist.url}
-                                target="_blank"
-                                rel="noreferrer"
-                                style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #ccc', textDecoration: 'none' }}
-                            >
-                                Open MoodDJ on Spotify
-                            </a>
+                        {tracking && (
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+                                <button style={buttonStyle} onClick={() => captureCalibration('neutral')}>Set Neutral</button>
+                                <button style={buttonStyle} onClick={() => captureCalibration('happy')}>Set Happy</button>
+                                <button style={buttonStyle} onClick={() => captureCalibration('sad')}>Set Sad</button>
+                                <button style={buttonStyle} onClick={swapNeutralSad} title="If neutral/sad feel swapped">
+                                    Swap Neutral ↔ Sad
+                                </button>
+                                <button style={{ ...buttonStyle, opacity: 0.8 }} onClick={clearCalibration}>
+                                    Clear Calib
+                                </button>
+                            </div>
                         )}
-                    </div>
 
-                    <div style={{ marginTop: 16, padding: 12, border: '1px solid #eee', borderRadius: 8 }}>
-                        <strong>Status</strong>
-                        <ul>
-                            <li>Camera: {cameraOn ? 'on' : 'off'}</li>
-                            <li>Detected mood (camera): {detectedMood}</li>
-                            <li>Current mood (used by app): {mood}</li>
-                            <li>Spotify: {linked ? 'linked' : 'not linked'}</li>
-                            <li>Playlist size target: {size}</li>
-                            {/* <li>Runtime: {runtime}</li> */}
-                            <li>Video: {videoEl?.videoWidth || 0}×{videoEl?.videoHeight || 0} readyState {videoEl?.readyState}</li>
-                            <li>Stream: {stream ? stream.getVideoTracks().map(t => t.readyState).join(',') : 'none'}</li>
-                            <li>{lastError && <span style={{ color: 'crimson' }}>Init: {lastError}</span>}</li>
-
-                        </ul>
-
-                        <div style={{ marginTop: 8 }}>
-                            <div>Scores:</div>
-                            {(['happy', 'neutral', 'sad'] as Mood[]).map(m => (
-                                <div key={m} style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '2px 0' }}>
-                                    <div style={{ width: 70, textTransform: 'capitalize' }}>{m}</div>
-                                    <div style={{ flex: 1, height: 8, border: '1px solid #ddd', borderRadius: 4 }}>
-                                        <div style={{ width: `${Math.round((scores as any)[m] * 100)}%`, height: '100%', borderRadius: 4, background: '#888' }} />
+                        {/* Scores section (separate, under camera feed) */}
+                        <div
+                            style={{
+                                marginTop: 16,
+                                padding: 12,
+                                border: `1px solid ${colors.border}`,
+                                borderRadius: 8,
+                                background: colors.card,
+                            }}
+                        >
+                            <div style={{ marginBottom: 8, fontWeight: 600 }}>Scores</div>
+                            {(['happy', 'neutral', 'sad'] as Mood[]).map(m => {
+                                const pct = Math.round((scores as any)[m] * 100);
+                                const fill =
+                                    m === 'happy' ? colors.happy : m === 'neutral' ? colors.neutral : colors.sad;
+                                const label = m === 'neutral' ? 'Chill' : m.charAt(0).toUpperCase() + m.slice(1);
+                                return (
+                                    <div key={m} style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '6px 0' }}>
+                                        <div style={{ width: 70 }}>{label}</div>
+                                        <div style={{ flex: 1, height: 10, borderRadius: 6, background: colors.barTrack, overflow: 'hidden' }}>
+                                            <div style={{ width: `${pct}%`, height: '100%', background: fill }} />
+                                        </div>
+                                        <div style={{ width: 40, textAlign: 'right', color: colors.textMuted }}>{pct}%</div>
                                     </div>
-                                    <div style={{ width: 48, textAlign: 'right' }}>{((scores as any)[m] * 100).toFixed(0)}%</div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     </div>
-                </div>
-            </section>
 
-            <p style={{ marginTop: 16, opacity: 0.8 }}>
-                (Preview can be hidden; detection still runs while camera is on. When camera is off, detection pauses.)
-            </p>
+                    {/* Right: Mood chip + controls + Status (collapsible) */}
+                    <div>
+                        <div style={{ display: 'inline-flex', gap: 8 }}>
+                            <span
+                                style={{
+                                    padding: '8px 12px',
+                                    borderRadius: 8,
+                                    border: `1px solid ${colors.border}`,
+                                    background: colors.card,
+                                    textTransform: 'lowercase',
+                                }}
+                            >
+                                {mood}
+                            </span>
+                        </div>
+
+                        <div style={{ marginTop: 12, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                            <label>
+                                Size:&nbsp;
+                                <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    value={sizeField.text}
+                                    onChange={sizeField.onChange}
+                                    onBlur={sizeField.onBlur}
+                                    onKeyDown={sizeField.onKeyDown}
+                                    style={{
+                                        width: 72,
+                                        background: colors.card,
+                                        color: colors.text,
+                                        border: `1px solid ${colors.border}`,
+                                        borderRadius: 6,
+                                        padding: '6px 8px',
+                                    }}
+                                />
+                            </label>
+
+                            <label>
+                                Every:&nbsp;
+                                <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    value={intervalField.text}
+                                    onChange={intervalField.onChange}
+                                    onBlur={intervalField.onBlur}
+                                    onKeyDown={intervalField.onKeyDown}
+                                    style={{
+                                        width: 72,
+                                        background: colors.card,
+                                        color: colors.text,
+                                        border: `1px solid ${colors.border}`,
+                                        borderRadius: 6,
+                                        padding: '6px 8px',
+                                    }}
+                                />
+                                s
+                            </label>
+
+                            <label>
+                                Add per tick:&nbsp;
+                                <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    value={perTickField.text}
+                                    onChange={perTickField.onChange}
+                                    onBlur={perTickField.onBlur}
+                                    onKeyDown={perTickField.onKeyDown}
+                                    style={{
+                                        width: 60,
+                                        background: colors.card,
+                                        color: colors.text,
+                                        border: `1px solid ${colors.border}`,
+                                        borderRadius: 6,
+                                        padding: '6px 8px',
+                                    }}
+                                />
+                            </label>
+
+                            <button style={buttonStyle} onClick={fillPlaylist} disabled={!linked}>
+                                Fill / Replace Playlist
+                            </button>
+                            <button style={buttonStyle} onClick={addOne} disabled={!linked}>
+                                Add One
+                            </button>
+                            <button style={{ ...buttonStyle, opacity: linked ? 0.8 : 1 }} onClick={linkSpotify} disabled={linked} title={linked ? 'Already linked' : ''}>
+                                {linked ? 'Link Spotify ✔' : 'Link Spotify'}
+                            </button>
+
+                            {playlist?.url && (
+                                <a
+                                    href={playlist.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    style={{
+                                        padding: '8px 12px',
+                                        borderRadius: 8,
+                                        border: `1px solid ${colors.btnBorder}`,
+                                        background: colors.btn,
+                                        color: colors.text,
+                                        textDecoration: 'none',
+                                    }}
+                                >
+                                    Open MoodDJ on Spotify
+                                </a>
+                            )}
+                        </div>
+
+                        {/* Collapsible Status (includes Detector/Tracking; trims other lines) */}
+                        <div
+                            style={{
+                                marginTop: 16,
+                                padding: 12,
+                                border: `1px solid ${colors.border}`,
+                                borderRadius: 8,
+                                background: colors.card,
+                            }}
+                        >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <strong>Status</strong>
+                                <button style={buttonStyle} onClick={() => setShowStatus(s => !s)}>
+                                    {showStatus ? 'Hide Status' : 'Show Status'}
+                                </button>
+                            </div>
+
+                            {showStatus && (
+                                <ul style={{ marginTop: 8, paddingLeft: 18 }}>
+                                    <li>Camera: {cameraOn ? 'on' : 'off'}</li>
+                                    <li>Spotify: {linked ? 'linked' : 'not linked'}</li>
+                                    <li>Playlist size target: {size}</li>
+                                    <li>
+                                        Detector: {ready ? 'ready' : 'loading'} {emoRunning ? '(running)' : ''}
+                                    </li>
+                                    <li>Tracking face: {tracking ? `yes (${faceCount})` : 'no'}</li>
+                                    {lastError && <li style={{ color: '#f87171' }}>Init: {lastError}</li>}
+                                </ul>
+                            )}
+                        </div>
+                    </div>
+                </section>
+            </div>
         </div>
     );
 }
