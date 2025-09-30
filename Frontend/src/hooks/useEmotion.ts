@@ -25,26 +25,25 @@ const BACKEND =
     (import.meta as any).env?.VITE_BACKEND_URL ??
     `${location.protocol}//${location.hostname}:3001`;
 
-const MP_BASE = `${import.meta.env.BASE_URL || '/'}mediapipe`;
+const MP_BASE = '/mediapipe';
 
 function scoreFromLandmarks(_pts: any): { mood: Mood; scores: Scores } {
     return { mood: 'neutral', scores: { happy: 0.33, neutral: 0.34, sad: 0.33 } };
 }
 
-function loadScriptOnce(src: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-        const ex = document.querySelector<HTMLScriptElement>(`script[data-src="${src}"]`);
-        if (ex && (ex as any)._loaded) return resolve();
+let mpScriptPromise: Promise<void> | null = null;
 
-        const s = document.createElement('script');
-        s.src = src;
-        s.async = false;
-        s.defer = false;
-        s.setAttribute('data-src', src);
-        s.onload = () => { (s as any)._loaded = true; resolve(); };
-        s.onerror = () => reject(new Error(`Failed to load ${src}`));
-        document.head.appendChild(s);
-    });
+function loadScript(src: string): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+    if (document.querySelector(`script[data-src="${src}"]`)) return resolve();
+    const s = document.createElement('script');
+    s.src = src;
+    s.async = true;
+    s.dataset.src = src;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error(`Failed to load ${src}`));
+    document.head.appendChild(s);
+  });
 }
 
 async function ensureMediaPipe(): Promise<any> {
@@ -53,9 +52,9 @@ async function ensureMediaPipe(): Promise<any> {
     (window as any).Module = (window as any).Module || {};
     (window as any).Module.locateFile = (f: string) => `${MP_BASE}/${f}`;
 
-    await loadScriptOnce(`${MP_BASE}/face_mesh.js`);
+    await loadScript(`${MP_BASE}/face_mesh.js`);
 
-    await loadScriptOnce(`${MP_BASE}/face_mesh_solution_wasm_bin.js`);
+    await loadScript(`${MP_BASE}/face_mesh_solution_wasm_bin.js`);
 
     const FaceMeshCtor = (window as any).FaceMesh;
     if (!FaceMeshCtor) throw new Error('FaceMesh global not loaded');
