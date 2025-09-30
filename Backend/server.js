@@ -148,35 +148,6 @@ function setTokensCookie(res, { access_token, refresh_token, expires_at }) {
     });
 }
 
-async function ensureAccessToken(req, res) {
-    const t = getTokensFromReq(req);
-    if (t.access_token && Date.now() < t.expires_at) return t.access_token;
-    if (!t.refresh_token) throw new Error('Not authorized');
-
-    const body = new URLSearchParams({
-        grant_type: 'refresh_token',
-        refresh_token: t.refresh_token,
-        client_id: SPOTIFY_CLIENT_ID,
-        client_secret: SPOTIFY_CLIENT_SECRET,
-    });
-
-    const r = await fetch('https://accounts.spotify.com/api/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body,
-    });
-    const data = await r.json();
-    if (!r.ok) throw new Error('Refresh failed: ' + JSON.stringify(data));
-
-    const next = {
-        access_token: data.access_token,
-        refresh_token: t.refresh_token, // keep unless Spotify returns a new one
-        expires_at: Date.now() + (data.expires_in * 1000) - 10_000,
-    };
-    setTokensCookie(res, next);
-    return next.access_token;
-}
-
 async function spotify(req, res, path, { method = 'GET', body } = {}) {
     const base = 'https://api.spotify.com/v1';
     const url = /^https?:\/\//i.test(path) ? path : `${base}${path}`;
@@ -266,17 +237,18 @@ app.get('/callback', async (req, res) => {
 });
 
 
-async function ensureAccessToken() {
-    if (tokenStore.access_token && Date.now() < tokenStore.expires_at) {
-        return tokenStore.access_token;
-    }
-    if (!tokenStore.refresh_token) throw new Error('Not authorized');
+async function ensureAccessToken(req, res) {
+    const t = getTokensFromReq(req);
+    if (t.access_token && Date.now() < t.expires_at) return t.access_token;
+    if (!t.refresh_token) throw new Error('Not authorized');
+
     const body = new URLSearchParams({
         grant_type: 'refresh_token',
-        refresh_token: tokenStore.refresh_token,
+        refresh_token: t.refresh_token,
         client_id: SPOTIFY_CLIENT_ID,
         client_secret: SPOTIFY_CLIENT_SECRET,
     });
+
     const r = await fetch('https://accounts.spotify.com/api/token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -284,12 +256,14 @@ async function ensureAccessToken() {
     });
     const data = await r.json();
     if (!r.ok) throw new Error('Refresh failed: ' + JSON.stringify(data));
-    await setTokens({
+
+    const next = {
         access_token: data.access_token,
-        refresh_token: tokenStore.refresh_token, // keep existing unless Spotify returns a new one
+        refresh_token: t.refresh_token,
         expires_at: Date.now() + (data.expires_in * 1000) - 10_000,
-    });
-    return tokenStore.access_token;
+    };
+    setTokensCookie(res, next);
+    return next.access_token;
 }
 
 async function getCurrentUserId() {
