@@ -51,7 +51,10 @@ async function ensureMediaPipe(): Promise<any> {
     (window as any).Module = (window as any).Module || {};
     (window as any).Module.locateFile = (f: string) => `${MP_BASE}/${f}`;
 
-    if (!mpScriptPromise) mpScriptPromise = loadScript(`${MP_BASE}/face_mesh.js`);
+    if (!mpScriptPromise) {
+        const v = 'v1'; 
+        mpScriptPromise = loadScript(`${MP_BASE}/face_mesh.js?${v}`);
+    }
     await mpScriptPromise;
 
     const FaceMeshCtor = (window as any).FaceMesh;
