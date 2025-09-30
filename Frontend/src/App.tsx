@@ -3,7 +3,13 @@ import { useEmotion, Mood } from './hooks/useEmotion';
 
 const BACKEND = (import.meta.env.VITE_BACKEND_URL || '').replace(/\/$/, '');
 
-// Number input helper (smooth typing/backspace; clamp on blur/enter/arrow)
+type SpTokens = { access_token: string; refresh_token: string; expires_at: number };
+const TOK_KEY = 'sp_tokens';
+
+/**
+ * Numeric text field helper with debounced commit and key handling.
+ * Clamps to [min, max], rounds to nearest integer, supports ArrowUp/Down steps.
+ */
 function useNumberField(opts: {
     value: number;
     setValue: (n: number) => void;
@@ -13,31 +19,40 @@ function useNumberField(opts: {
 }) {
     const { value, setValue, min, max, step = 1 } = opts;
     const [text, setText] = useState(String(value));
-    useEffect(() => { setText(String(value)); }, [value]);
+
+    useEffect(() => {
+        setText(String(value));
+    }, [value]);
 
     const commit = () => {
         const n = Number(text);
         if (Number.isFinite(n)) setValue(Math.max(min, Math.min(max, Math.round(n))));
         else setText(String(value));
     };
+
     const onChange = (e: React.ChangeEvent<HTMLInputElement>) => setText(e.target.value);
+
     const onBlur = () => commit();
+
     const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
         if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
             e.preventDefault();
             const cur = Number.isFinite(Number(text)) ? Number(text) : value;
             const next = e.key === 'ArrowUp' ? cur + step : cur - step;
             const clamped = Math.max(min, Math.min(max, Math.round(next)));
-            setValue(clamped); setText(String(clamped));
+            setValue(clamped);
+            setText(String(clamped));
         }
         if (e.key === 'Enter') commit();
     };
+
     return { text, onChange, onBlur, onKeyDown };
 }
 
-type SpTokens = { access_token: string; refresh_token: string; expires_at: number };
-const TOK_KEY = 'sp_tokens';
-
+/**
+ * Extracts Spotify tokens from location hash and persists to localStorage.
+ * Clears hash from the URL after capture.
+ */
 (function captureSpotifyTokensFromHash() {
     const m = /[#&]sp=([^&]+)/.exec(window.location.hash);
     if (!m) return;
@@ -45,20 +60,26 @@ const TOK_KEY = 'sp_tokens';
         const payload = JSON.parse(decodeURIComponent(m[1])) as SpTokens;
         localStorage.setItem(TOK_KEY, JSON.stringify(payload));
     } catch { }
-    // Clean the URL
     const url = new URL(window.location.href);
     url.hash = '';
     window.history.replaceState({}, '', url.toString());
 })();
 
+/** Retrieves stored Spotify tokens from localStorage. */
 function getStoredTokens(): SpTokens | null {
-    try { return JSON.parse(localStorage.getItem('sp_tokens') || 'null'); } catch { return null; }
+    try {
+        return JSON.parse(localStorage.getItem(TOK_KEY) || 'null');
+    } catch {
+        return null;
+    }
 }
 
+/** Persists Spotify tokens to localStorage. */
 function setStoredTokens(t: SpTokens) {
-    localStorage.setItem('sp_tokens', JSON.stringify(t));
+    localStorage.setItem(TOK_KEY, JSON.stringify(t));
 }
 
+/** Builds authorization/refresh headers for backend requests. */
 function authHeaders() {
     const t = getStoredTokens();
     if (!t) return {};
@@ -69,6 +90,7 @@ function authHeaders() {
     } as Record<string, string>;
 }
 
+/** Updates stored access token from backend response headers, if provided. */
 function maybeUpdateTokensFromResponse(r: Response) {
     const newAccess = r.headers.get('x-new-access-token');
     const newExp = r.headers.get('x-new-expires-at');
@@ -82,54 +104,68 @@ function maybeUpdateTokensFromResponse(r: Response) {
     }
 }
 
-
 export default function App() {
-
     const [showPreview, setShowPreview] = useState(true);
     const [cameraOn, setCameraOn] = useState(false);
-
-    const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
-    const videoRef = useCallback((el: HTMLVideoElement | null) => { setVideoEl(el); }, []);
-
     const [stream, setStream] = useState<MediaStream | null>(null);
-
     const [linked, setLinked] = useState(false);
     const [size, setSize] = useState(25);
     const [intervalMs, setIntervalMs] = useState(180_000);
     const [perTick, setPerTick] = useState(1);
-
-    const sizeField = useNumberField({ value: size, setValue: setSize, min: 1, max: 100 });
-    const intervalField = useNumberField({
-        value: Math.round(intervalMs / 1000),
-        setValue: (secs) => setIntervalMs(secs * 1000),
-        min: 5, max: 3600, step: 5
-    });
-    const perTickField = useNumberField({ value: perTick, setValue: setPerTick, min: 1, max: 5 });
-
     const [playlist, setPlaylist] = useState<{ id: string; url: string | null; uri: string; name: string } | null>(null);
-
     const [mood, setMood] = useState<Mood>('neutral');
+
     const moodRef = useRef<Mood>('neutral');
-    useEffect(() => { moodRef.current = mood; }, [mood]);
+    useEffect(() => {
+        moodRef.current = mood;
+    }, [mood]);
 
     const intervalRef = useRef<number | null>(null);
     const inFlightRef = useRef(false);
 
+    const sizeField = useNumberField({ value: size, setValue: setSize, min: 1, max: 100 });
+    const intervalField = useNumberField({
+        value: Math.round(intervalMs / 1000),
+        setValue: secs => setIntervalMs(secs * 1000),
+        min: 5,
+        max: 3600,
+        step: 5,
+    });
+    const perTickField = useNumberField({ value: perTick, setValue: setPerTick, min: 1, max: 5 });
+
+    const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
+    const videoRef = useCallback((el: HTMLVideoElement | null) => {
+        setVideoEl(el);
+    }, []);
+
     const {
-        mood: detectedMood, scores, ready, running: emoRunning, tracking, faceCount, lastError,
-        start: startEmotion, stop: stopEmotion, captureCalibration, clearCalibration, swapNeutralSad
+        mood: detectedMood,
+        scores,
+        ready,
+        running: emoRunning,
+        tracking,
+        faceCount,
+        lastError,
+        start: startEmotion,
+        stop: stopEmotion,
+        captureCalibration,
+        clearCalibration,
+        swapNeutralSad,
     } = useEmotion(videoEl);
 
-    useEffect(() => { if (detectedMood) setMood(detectedMood as Mood); }, [detectedMood]);
+    useEffect(() => {
+        if (detectedMood) setMood(detectedMood as Mood);
+    }, [detectedMood]);
 
-    // Attach/detach the stream and reliably (re)start detection
+    /**
+     * Binds/unbinds the current MediaStream to the video element and starts/stops emotion detection.
+     */
     useEffect(() => {
         if (!videoEl) return;
 
         function bind() {
             if (!videoEl || !stream) return;
-            videoEl.srcObject = stream;
-            // Wait for data, then start the detector and play
+            (videoEl as any).srcObject = stream;
             const onLoaded = () => {
                 startEmotion();
                 videoEl.play?.().catch(() => { });
@@ -140,15 +176,12 @@ export default function App() {
         }
 
         if (stream) {
-            // Full reset before binding the new stream (prevents stale frames after restart)
             videoEl.pause?.();
             videoEl.removeAttribute('src');
             (videoEl as any).srcObject = null;
             videoEl.load?.();
-            // next task: bind stream, start detection on loadeddata
             setTimeout(bind, 0);
         } else {
-            // Tear down stream
             videoEl.pause?.();
             videoEl.removeAttribute('src');
             (videoEl as any).srcObject = null;
@@ -158,6 +191,7 @@ export default function App() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [videoEl, stream]);
 
+    /** Initiates Spotify auth handshake. */
     const linkSpotify = () => {
         if (!BACKEND) {
             alert('Backend URL is not configured. Set VITE_BACKEND_URL.');
@@ -167,13 +201,15 @@ export default function App() {
         window.location.href = `${BACKEND}/login?return_to=${returnTo}`;
     };
 
+    /**
+     * Checks Spotify link status; refreshes on visibility change and post-login redirect.
+     */
     useEffect(() => {
         const check = async () => {
             try {
                 const r = await fetch(`${BACKEND}/me`, { headers: authHeaders() });
                 maybeUpdateTokensFromResponse(r);
-                if (r.ok) setLinked(true);
-                else setLinked(false);
+                setLinked(r.ok);
             } catch {
                 setLinked(false);
             }
@@ -187,18 +223,22 @@ export default function App() {
             window.history.replaceState({}, '', url.toString());
         }
 
-        const onVis = () => { if (document.visibilityState === 'visible') check(); };
+        const onVis = () => {
+            if (document.visibilityState === 'visible') check();
+        };
         document.addEventListener('visibilitychange', onVis);
         return () => document.removeEventListener('visibilitychange', onVis);
     }, []);
 
+    /**
+     * Loads or creates the target playlist after successful link.
+     */
     useEffect(() => {
         const load = async () => {
             try {
                 const me = await fetch(`${BACKEND}/me`, { headers: authHeaders() });
                 maybeUpdateTokensFromResponse(me);
                 if (!me.ok) return;
-
                 const r = await fetch(`${BACKEND}/playlist`, { headers: authHeaders() });
                 maybeUpdateTokensFromResponse(r);
                 if (r.ok) setPlaylist(await r.json());
@@ -208,10 +248,14 @@ export default function App() {
         if (new URLSearchParams(window.location.search).get('linked') === '1') load();
     }, [linked]);
 
-
-    // Auto add every N seconds (uses current mood)
+    /**
+     * Periodically adds tracks to the playlist while linked and camera enabled.
+     */
     useEffect(() => {
-        if (intervalRef.current != null) { clearInterval(intervalRef.current); intervalRef.current = null; }
+        if (intervalRef.current != null) {
+            clearInterval(intervalRef.current);
+            intervalRef.current = null;
+        }
         if (!linked || !cameraOn) return;
 
         const tick = async () => {
@@ -224,14 +268,22 @@ export default function App() {
                     body: JSON.stringify({ label: moodRef.current, keep: size, count: perTick }),
                 });
                 maybeUpdateTokensFromResponse(r);
-            } catch { } finally { inFlightRef.current = false; }
+            } catch {
+            } finally {
+                inFlightRef.current = false;
+            }
         };
 
         intervalRef.current = window.setInterval(tick, intervalMs);
-        return () => { if (intervalRef.current != null) { clearInterval(intervalRef.current); intervalRef.current = null; } };
+        return () => {
+            if (intervalRef.current != null) {
+                clearInterval(intervalRef.current);
+                intervalRef.current = null;
+            }
+        };
     }, [linked, cameraOn, intervalMs, perTick, size]);
 
-    // Camera controls
+    /** Starts the user-facing camera and attaches the MediaStream. */
     const startCamera = async () => {
         if (cameraOn) return;
         try {
@@ -245,26 +297,35 @@ export default function App() {
             alert('Camera permission denied or unavailable');
         }
     };
+
+    /** Stops emotion detection and deactivates the MediaStream. */
     const stopCamera = () => {
         if (!cameraOn) return;
-        // Stop detection first, then kill tracks
         stopEmotion();
         stream?.getTracks().forEach(t => t.stop());
         setStream(null);
         setCameraOn(false);
     };
 
-    // Playlist actions
+    /** Replaces the playlist contents with selections for the current mood. */
     const fillPlaylist = async () => {
-        if (!linked) { alert('Link Spotify first'); return; }
+        if (!linked) {
+            alert('Link Spotify first');
+            return;
+        }
         await fetch(`${BACKEND}/mood`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...authHeaders() },
             body: JSON.stringify({ label: moodRef.current, size }),
         });
     };
+
+    /** Adds one new track for the current mood, respecting the keep size. */
     const addOne = async () => {
-        if (!linked) { alert('Link Spotify first'); return; }
+        if (!linked) {
+            alert('Link Spotify first');
+            return;
+        }
         await fetch(`${BACKEND}/mood/tick`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...authHeaders() },

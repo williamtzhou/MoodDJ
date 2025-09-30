@@ -10,25 +10,24 @@ type Return = {
     tracking: boolean;
     runtime: 'tfjs' | 'mediapipe' | null;
     lastError: string | null;
-
     ready: boolean;
     faceCount: number;
     captureCalibration: (w: 'happy' | 'neutral' | 'sad') => void;
     clearCalibration: () => void;
     swapNeutralSad: () => void;
-
     start: () => void;
     stop: () => void;
 };
-
-const BACKEND =
-    (import.meta as any).env?.VITE_BACKEND_URL ??
-    `${location.protocol}//${location.hostname}:3001`;
 
 const MP_BASE = '/mediapipe';
 
 let mpScriptPromise: Promise<void> | null = null;
 
+/**
+ * Dynamically loads a script once per URL. Subsequent calls are deduplicated.
+ * @param src Absolute or relative script URL.
+ * @returns Promise that resolves when the script loads.
+ */
 function loadScript(src: string): Promise<void> {
     return new Promise<void>((resolve, reject) => {
         if (document.querySelector(`script[data-src="${src}"]`)) return resolve();
@@ -42,6 +41,11 @@ function loadScript(src: string): Promise<void> {
     });
 }
 
+/**
+ * Ensures MediaPipe FaceMesh is available on the window and configured to
+ * resolve asset files from MP_BASE.
+ * @returns FaceMesh constructor from MediaPipe.
+ */
 async function ensureMediaPipe(): Promise<any> {
     if ((window as any).FaceMesh) return (window as any).FaceMesh;
 
@@ -59,60 +63,87 @@ async function ensureMediaPipe(): Promise<any> {
     return FaceMeshCtor;
 }
 
-/* ----------------------- landmark helpers ----------------------- */
-
+/** 2D point used by facial landmark calculations. */
 type Pt = { x: number; y: number; z?: number };
 
+/**
+ * Euclidean distance in 2D.
+ * @param a First point.
+ * @param b Second point.
+ * @returns Distance between points.
+ */
 function d(a: Pt, b: Pt) {
-    const dx = a.x - b.x, dy = a.y - b.y;
+    const dx = a.x - b.x,
+        dy = a.y - b.y;
     return Math.hypot(dx, dy);
 }
-function avg2(a: Pt, b: Pt): Pt { return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; }
-function clamp01(v: number) { return Math.max(0, Math.min(1, v)); }
-function norm(v: number, a: number, b: number) { return clamp01((v - a) / (b - a)); }
-function sigmoid(x: number) { return 1 / (1 + Math.exp(-x)); }
 
 /**
- * Indices in MediaPipe FaceMesh (468 pts). These cover eyes and mouth.
- * Using stable, commonly referenced points:
- * - Mouth corners: 61 (L), 291 (R)
- * - Upper/Lower inner lips: 13 (upper), 14 (lower)
- * - Eye lids: left 159 (upper), 145 (lower); right 386 (upper), 374 (lower)
- * - Eye corners: left 33 (outer), 133 (inner); right 263 (outer), 362 (inner)
+ * Arithmetic mean of two points.
+ * @param a First point.
+ * @param b Second point.
+ * @returns Midpoint.
+ */
+function avg2(a: Pt, b: Pt): Pt {
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+}
+
+/**
+ * FaceMesh landmark indices used for mouth and eye features.
  */
 const IDX = {
-    mouthL: 61, mouthR: 291, lipUp: 13, lipLo: 14,
-    lEyeUp: 159, lEyeLo: 145, rEyeUp: 386, rEyeLo: 374,
-    lEyeOuter: 33, lEyeInner: 133, rEyeOuter: 263, rEyeInner: 362,
+    mouthL: 61,
+    mouthR: 291,
+    lipUp: 13,
+    lipLo: 14,
+    lEyeUp: 159,
+    lEyeLo: 145,
+    rEyeUp: 386,
+    rEyeLo: 374,
+    lEyeOuter: 33,
+    lEyeInner: 133,
+    rEyeOuter: 263,
+    rEyeInner: 362,
 };
 
-/* ------------------- calibration + scoring ---------------------- */
-
+/** Calibration parameters for neutral baseline and optional neutral/sad swap. */
 type Calib = {
-    // Baseline (neutral) measurements, normalized by interocular distance.
-    base: {
-        eyeGap: number;      // average eye openness
-        mouthOpen: number;   // lip gap
-        smileUp: number;     // mouth-corner lift vs mouth center
-        mouthWidth: number;  // corner-to-corner width
-    } | null;
-    swapNS: boolean;        // when user feels neutral/sad are flipped
+    base:
+    | {
+        eyeGap: number;
+        mouthOpen: number;
+        smileUp: number;
+        mouthWidth: number;
+    }
+    | null;
+    swapNS: boolean;
 };
 
+/**
+ * Default calibration with no baseline and no neutral/sad swap.
+ * @returns Fresh calibration object.
+ */
 function defaultCalib(): Calib {
     return { base: null, swapNS: false };
 }
 
+/**
+ * Extracts normalized facial metrics from 468-point landmarks.
+ * Normalization uses interocular distance.
+ * @param pts Landmark array.
+ * @returns Derived metrics and scale.
+ */
 function extractMetrics(pts: Pt[]) {
     const p = (i: number) => pts[i];
 
-    // Interocular scale for normalization
     const leftEyeCtr = avg2(p(IDX.lEyeOuter), p(IDX.lEyeInner));
     const rightEyeCtr = avg2(p(IDX.rEyeOuter), p(IDX.rEyeInner));
     const eyeDist = d(leftEyeCtr, rightEyeCtr) || 1;
 
-    const mouthL = p(IDX.mouthL), mouthR = p(IDX.mouthR);
-    const lipUp = p(IDX.lipUp), lipLo = p(IDX.lipLo);
+    const mouthL = p(IDX.mouthL),
+        mouthR = p(IDX.mouthR);
+    const lipUp = p(IDX.lipUp),
+        lipLo = p(IDX.lipLo);
 
     const mouthCenter = avg2(lipUp, lipLo);
     const cornerY = (mouthL.y + mouthR.y) / 2;
@@ -120,73 +151,83 @@ function extractMetrics(pts: Pt[]) {
     const mouthWidth = d(mouthL, mouthR) / eyeDist;
     const mouthOpen = d(lipUp, lipLo) / eyeDist;
     const eyeOpen =
-        (d(p(IDX.lEyeUp), p(IDX.lEyeLo)) + d(p(IDX.rEyeUp), p(IDX.rEyeLo))) /
-        (2 * eyeDist);
+        (d(p(IDX.lEyeUp), p(IDX.lEyeLo)) + d(p(IDX.rEyeUp), p(IDX.rEyeLo))) / (2 * eyeDist);
 
-    // Positive when corners are above mouth center (smile upturn).
     const smileUp = (mouthCenter.y - cornerY) / eyeDist;
 
     return { mouthWidth, mouthOpen, eyeOpen, smileUp, scale: eyeDist };
 }
 
+/**
+ * Three-way softmax with temperature.
+ * @param a First logit.
+ * @param b Second logit.
+ * @param c Third logit.
+ * @param T Softmax temperature.
+ * @returns Normalized probabilities.
+ */
 function softmax3(a: number, b: number, c: number, T = 1.8) {
-    // higher T => flatter distribution
     const ex = (x: number) => Math.exp(x / T);
-    const ea = ex(a), eb = ex(b), ec = ex(c);
+    const ea = ex(a),
+        eb = ex(b),
+        ec = ex(c);
     const s = ea + eb + ec || 1;
     return { a: ea / s, b: eb / s, c: ec / s };
 }
 
+/**
+ * Converts facial metrics into mood scores using a calibrated baseline and
+ * a temperature-softmax. Includes optional neutral/sad swap and EMA performed upstream.
+ * @param metrics Extracted facial metrics.
+ * @param calib Calibration parameters.
+ * @returns Scores for happy, neutral, and sad.
+ */
 function toScores(metrics: ReturnType<typeof extractMetrics>, calib: Calib): Scores {
     const { mouthWidth, mouthOpen, eyeOpen, smileUp } = metrics;
 
-    const base = calib.base ?? {
-        eyeGap: 0.055,
-        mouthOpen: 0.025,
-        smileUp: 0.00,
-        mouthWidth: 0.48,
-    };
+    const base =
+        calib.base ?? {
+            eyeGap: 0.055,
+            mouthOpen: 0.025,
+            smileUp: 0.0,
+            mouthWidth: 0.48,
+        };
 
     const dSmile = smileUp - base.smileUp;
     const dOpen = mouthOpen - base.mouthOpen;
     const dEye = eyeOpen - base.eyeGap;
 
-    // --- Neutral "dead-zone" widened a bit -------------------------
-    const TH_SMILE = 0.015;   // was 0.010
-    const TH_OPEN = 0.015;   // was 0.010
+    const TH_SMILE = 0.015;
+    const TH_OPEN = 0.015;
     const inNeutralBand = Math.abs(dSmile) < TH_SMILE && Math.abs(dOpen) < TH_OPEN;
 
-    // Gaussian around baseline; boost inside the band
     const zSmile = dSmile / TH_SMILE;
     const zOpen = dOpen / TH_OPEN;
     let neutralRaw = Math.exp(-0.5 * (zSmile * zSmile * 0.7 + zOpen * zOpen * 0.7));
     if (inNeutralBand) neutralRaw *= 1.25;
 
-    // --- Happy / Sad ramps made gentler ----------------------------
-    const S1 = 28;  // smile slope (smaller = gentler)
-    const S2 = 18;  // mouth-open slope
-
+    const S1 = 28;
+    const S2 = 18;
     const sigmoid = (x: number) => 1 / (1 + Math.exp(-x));
 
-    // Happy: upturned corners + some openness
-    const happyRaw =
-        0.75 * sigmoid(dSmile * S1) +
-        0.25 * sigmoid((dOpen) * S2);
+    const happyRaw = 0.75 * sigmoid(dSmile * S1) + 0.25 * sigmoid(dOpen * S2);
 
-    // Sad: downturned corners + slight closure + a little eye-close
     const sadRaw =
-        0.70 * sigmoid((-dSmile) * S1) +
-        0.20 * sigmoid((-(dOpen) + 0.002) * S2) +
-        0.10 * sigmoid((-(dEye) + 0.001) * 90);
+        0.7 * sigmoid(-dSmile * S1) +
+        0.2 * sigmoid((-(dOpen) + 0.002) * S2) +
+        0.1 * sigmoid((-(dEye) + 0.001) * 90);
 
-    // Optionally swap neutral/sad if user asked
-    let h = happyRaw, n = neutralRaw, s = sadRaw;
-    if (calib.swapNS) { const t = n; n = s; s = t; }
+    let h = happyRaw,
+        n = neutralRaw,
+        s = sadRaw;
+    if (calib.swapNS) {
+        const t = n;
+        n = s;
+        s = t;
+    }
 
-    // Temperature-softmax to avoid 90% peaks; target ~60–70% on clear faces
     const { a: H, b: N, c: S } = softmax3(h, n, s, 1.8);
 
-    // Small neutral floor so it isn’t 0% when face is stable
     const minNeutral = 0.08;
     const adjN = Math.max(N, minNeutral);
     const renorm = H + adjN + S || 1;
@@ -198,10 +239,12 @@ function toScores(metrics: ReturnType<typeof extractMetrics>, calib: Calib): Sco
     };
 }
 
-
-
-/* --------------------------- hook ------------------------------- */
-
+/**
+ * React hook for MediaPipe FaceMesh-based emotion estimation from a HTMLVideoElement.
+ * Provides smoothed scores, a dominant mood label, runtime state, and calibration controls.
+ * @param videoEl Attached video element receiving a user media stream.
+ * @returns Hook state and control methods.
+ */
 export function useEmotion(videoEl: HTMLVideoElement | null): Return {
     const [mood, setMood] = useState<Mood>('neutral');
     const [scores, setScores] = useState<Scores>({ happy: 0.33, neutral: 0.34, sad: 0.33 });
@@ -216,16 +259,16 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
     const rafRef = useRef<number | null>(null);
     const missFramesRef = useRef(0);
 
-    // Calibration stored in-memory; can be swapped to localStorage if desired.
     const calibRef = useRef<Calib>(defaultCalib());
-
-    // Exponential moving average for stable bars.
     const emaRef = useRef<Scores>({ happy: 0.33, neutral: 0.34, sad: 0.33 });
     const ALPHA = 0.2;
 
+    /**
+     * Captures a neutral baseline calibration from the most recent landmarks.
+     * Other labels are accepted for extensibility but do not alter baseline geometry.
+     * @param w Target label for calibration capture.
+     */
     const captureCalibration = (w: 'happy' | 'neutral' | 'sad') => {
-        // Only neutral baseline is recorded for geometry; happy/sad buttons exist
-        // to allow the UI to save that "this looks neutral/happy/sad" if extended later.
         if (w !== 'neutral') return;
         const last = (mpRef.current as any)?._lastPts as Pt[] | undefined;
         if (!last || last.length < 400) return;
@@ -237,8 +280,16 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
             mouthWidth: m.mouthWidth,
         };
     };
-    const clearCalibration = () => { calibRef.current = defaultCalib(); };
-    const swapNeutralSad = () => { calibRef.current.swapNS = !calibRef.current.swapNS; };
+
+    /** Resets calibration to defaults. */
+    const clearCalibration = () => {
+        calibRef.current = defaultCalib();
+    };
+
+    /** Toggles neutral/sad interpretation swap. */
+    const swapNeutralSad = () => {
+        calibRef.current.swapNS = !calibRef.current.swapNS;
+    };
 
     useEffect(() => {
         let cancelled = false;
@@ -267,12 +318,11 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
 
                     if (has) {
                         const pts = faces[0];
-                        (fm as any)._lastPts = pts; // cached for calibration capture
+                        (fm as any)._lastPts = pts;
 
                         const m = extractMetrics(pts);
                         const raw = toScores(m, calibRef.current);
 
-                        // EMA smoothing
                         const prev = emaRef.current;
                         const smoothed: Scores = {
                             happy: prev.happy + ALPHA * (raw.happy - prev.happy),
@@ -282,10 +332,12 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
                         emaRef.current = smoothed;
                         setScores(smoothed);
 
-                        // Winning label
                         const label: Mood =
-                            smoothed.happy >= smoothed.neutral && smoothed.happy >= smoothed.sad ? 'happy' :
-                                smoothed.sad >= smoothed.neutral ? 'sad' : 'neutral';
+                            smoothed.happy >= smoothed.neutral && smoothed.happy >= smoothed.sad
+                                ? 'happy'
+                                : smoothed.sad >= smoothed.neutral
+                                    ? 'sad'
+                                    : 'neutral';
                         setMood(label);
 
                         missFramesRef.current = 0;
@@ -314,11 +366,16 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
 
         return () => {
             cancelled = true;
-            try { mpRef.current?.close?.(); } catch { }
+            try {
+                mpRef.current?.close?.();
+            } catch { }
             mpRef.current = null;
         };
     }, []);
 
+    /**
+     * Stops the processing loop and resets tracking state.
+     */
     function stop() {
         setRunning(false);
         setTracking(false);
@@ -328,6 +385,10 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
         }
     }
 
+    /**
+     * Starts the processing loop if the video and detector are ready.
+     * Sets an initial miss counter and kicks off the frame loop.
+     */
     function start() {
         if (!videoEl || !mpRef.current) {
             setLastError('detector/video not ready');
@@ -339,6 +400,9 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
         kickOff();
     }
 
+    /**
+     * Waits for the video element to have measurable dimensions before looping.
+     */
     function kickOff() {
         if (!running || !videoEl || !mpRef.current) return;
         const vw = videoEl.videoWidth || 0;
@@ -351,6 +415,10 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
         loop();
     }
 
+    /**
+     * Sends frames to the MediaPipe pipeline and schedules the next iteration.
+     * Errors are captured, surfaced, and the pipeline is closed on failure.
+     */
     async function loop() {
         if (!running || !videoEl || !mpRef.current) return;
         try {
