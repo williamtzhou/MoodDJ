@@ -35,7 +35,56 @@ function useNumberField(opts: {
     return { text, onChange, onBlur, onKeyDown };
 }
 
+type SpTokens = { access_token: string; refresh_token: string; expires_at: number };
+const TOK_KEY = 'sp_tokens';
+
+(function captureSpotifyTokensFromHash() {
+    const m = /[#&]sp=([^&]+)/.exec(window.location.hash);
+    if (!m) return;
+    try {
+        const payload = JSON.parse(decodeURIComponent(m[1])) as SpTokens;
+        localStorage.setItem(TOK_KEY, JSON.stringify(payload));
+    } catch { }
+    // Clean the URL
+    const url = new URL(window.location.href);
+    url.hash = '';
+    window.history.replaceState({}, '', url.toString());
+})();
+
+function getStoredTokens(): SpTokens | null {
+    try { return JSON.parse(localStorage.getItem('sp_tokens') || 'null'); } catch { return null; }
+}
+
+function setStoredTokens(t: SpTokens) {
+    localStorage.setItem('sp_tokens', JSON.stringify(t));
+}
+
+function authHeaders() {
+    const t = getStoredTokens();
+    if (!t) return {};
+    return {
+        Authorization: `Bearer ${t.access_token}`,
+        'x-refresh-token': t.refresh_token,
+        'x-expires-at': String(t.expires_at),
+    } as Record<string, string>;
+}
+
+function maybeUpdateTokensFromResponse(r: Response) {
+    const newAccess = r.headers.get('x-new-access-token');
+    const newExp = r.headers.get('x-new-expires-at');
+    if (newAccess && newExp) {
+        const t = getStoredTokens();
+        if (t) {
+            t.access_token = newAccess;
+            t.expires_at = Number(newExp);
+            setStoredTokens(t);
+        }
+    }
+}
+
+
 export default function App() {
+
     const [showPreview, setShowPreview] = useState(true);
     const [cameraOn, setCameraOn] = useState(false);
 
@@ -115,28 +164,46 @@ export default function App() {
         window.location.assign(`${BACKEND}/login?return_to=${returnTo}`);
     };
     useEffect(() => {
-        const check = () => { fetch(`${BACKEND}/me`, { credentials: 'include' }).then(r => { if (r.ok) setLinked(true); }).catch(() => { }); };
+        const check = async () => {
+            try {
+                const r = await fetch(`${BACKEND}/me`, { headers: authHeaders() });
+                maybeUpdateTokensFromResponse(r);
+                if (r.ok) setLinked(true);
+                else setLinked(false);
+            } catch {
+                setLinked(false);
+            }
+        };
+        check();
+
         if (new URLSearchParams(window.location.search).get('linked') === '1') {
             check();
             const url = new URL(window.location.href);
             url.searchParams.delete('linked');
             window.history.replaceState({}, '', url.toString());
         }
+
         const onVis = () => { if (document.visibilityState === 'visible') check(); };
         document.addEventListener('visibilitychange', onVis);
         return () => document.removeEventListener('visibilitychange', onVis);
     }, []);
+
     useEffect(() => {
         const load = async () => {
             try {
-                const me = await fetch(`${BACKEND}/me`, { credentials: 'include' }); if (!me.ok) return;
-                const r = await fetch(`${BACKEND}/playlist`, { credentials: 'include' });
+                const me = await fetch(`${BACKEND}/me`, { headers: authHeaders() });
+                maybeUpdateTokensFromResponse(me);
+                if (!me.ok) return;
+
+                const r = await fetch(`${BACKEND}/playlist`, { headers: authHeaders() });
+                maybeUpdateTokensFromResponse(r);
                 if (r.ok) setPlaylist(await r.json());
             } catch { }
         };
         load();
         if (new URLSearchParams(window.location.search).get('linked') === '1') load();
     }, [linked]);
+
 
     // Auto add every N seconds (uses current mood)
     useEffect(() => {
@@ -147,12 +214,12 @@ export default function App() {
             if (inFlightRef.current) return;
             inFlightRef.current = true;
             try {
-                await fetch(`${BACKEND}/mood/tick`, {
+                const r = await fetch(`${BACKEND}/mood/tick`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json', ...authHeaders() },
                     body: JSON.stringify({ label: moodRef.current, keep: size, count: perTick }),
                 });
+                maybeUpdateTokensFromResponse(r);
             } catch { } finally { inFlightRef.current = false; }
         };
 
@@ -188,8 +255,7 @@ export default function App() {
         if (!linked) { alert('Link Spotify first'); return; }
         await fetch(`${BACKEND}/mood`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
+            headers: { 'Content-Type': 'application/json', ...authHeaders() },
             body: JSON.stringify({ label: moodRef.current, size }),
         });
     };
@@ -197,8 +263,7 @@ export default function App() {
         if (!linked) { alert('Link Spotify first'); return; }
         await fetch(`${BACKEND}/mood/tick`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
+            headers: { 'Content-Type': 'application/json', ...authHeaders() },
             body: JSON.stringify({ label: moodRef.current, keep: size, count: 1 }),
         });
     };

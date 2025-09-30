@@ -3,11 +3,9 @@ import express from 'express';
 import cors from 'cors';
 import fetch from 'node-fetch';
 import fs from 'fs';
-import cookieParser from 'cookie-parser';
 
 const app = express();
 app.use(express.json());
-app.use(cookieParser(process.env.COOKIE_SECRET || 'mooddj-dev'));
 
 const CORS_ORIGINS = (process.env.CORS_ORIGINS || process.env.FRONTEND_URL || 'http://localhost:5173')
     .split(',')
@@ -128,34 +126,80 @@ function originAllowed(reqOrigin) {
     });
 }
 
-// Read tokens from signed cookie
-function getTokensFromReq(req) {
-    try { return JSON.parse(req.signedCookies.sp || '{}'); } catch { return {}; }
+function readTokensFromHeaders(req) {
+    const auth = req.headers.authorization || '';
+    const access = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+    const refresh = req.headers['x-refresh-token'] ? String(req.headers['x-refresh-token']) : '';
+    const expiresAt = Number(req.headers['x-expires-at'] || 0);
+    return { access, refresh, expiresAt };
 }
 
-function setTokensCookie(res, { access_token, refresh_token, expires_at }) {
-    const payload = JSON.stringify({ access_token, refresh_token, expires_at });
-    res.cookie('sp', payload, {
-        httpOnly: true,
-        sameSite: 'none',
-        secure: true,
-        signed: true,
-        maxAge: 30 * 24 * 3600 * 1000,
+async function refreshWithSpotify(refreshToken) {
+    const body = new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken,
+        client_id: process.env.SPOTIFY_CLIENT_ID,
+        client_secret: process.env.SPOTIFY_CLIENT_SECRET,
     });
+    const r = await fetch('https://accounts.spotify.com/api/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error('Refresh failed: ' + JSON.stringify(data));
+    return {
+        access_token: data.access_token,
+        expires_at: Date.now() + (data.expires_in * 1000) - 10_000,
+    };
 }
 
 async function spotify(req, res, path, { method = 'GET', body } = {}) {
     const base = 'https://api.spotify.com/v1';
     const url = /^https?:\/\//i.test(path) ? path : `${base}${path}`;
-    const token = await ensureAccessToken(req, res); // your cookie-based version
-    const r = await fetch(url, {
-        method,
-        headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
-        body: body ? JSON.stringify(body) : undefined,
-    });
-    let data = null; try { data = await r.json(); } catch { }
-    if (!r.ok) throw new Error(`${method} ${url} failed: ${r.status} ${JSON.stringify(data)}`);
-    return data;
+
+    let { access, refresh, expiresAt } = readTokensFromHeaders(req);
+    if (!access && !refresh) throw new Error('Not authorized');
+
+    const doFetch = async (token) => {
+        const r = await fetch(url, {
+            method,
+            headers: {
+                Authorization: `Bearer ${token}`,
+                ...(body ? { 'Content-Type': 'application/json' } : {}),
+            },
+            body: body ? JSON.stringify(body) : undefined,
+        });
+        return r;
+    };
+
+    let token = access;
+    if (!token || (expiresAt && Date.now() >= expiresAt)) {
+        if (!refresh) throw new Error('Not authorized');
+        const fresh = await refreshWithSpotify(refresh);
+        token = fresh.access_token;
+        // Tell client to update its stored tokens
+        res.set('x-new-access-token', token);
+        res.set('x-new-expires-at', String(fresh.expires_at));
+    }
+
+    let r = await doFetch(token);
+    if (r.status === 401 && refresh) {
+        const fresh = await refreshWithSpotify(refresh);
+        token = fresh.access_token;
+        res.set('x-new-access-token', token);
+        res.set('x-new-expires-at', String(fresh.expires_at));
+        r = await doFetch(token);
+    }
+
+    const text = await r.text().catch(() => '');
+    let json = null;
+    try { json = text ? JSON.parse(text) : null; } catch { /* ignore */ }
+
+    if (!r.ok) {
+        throw new Error(`${method} ${url} failed: ${r.status} ${text?.slice(0, 200) || ''}`);
+    }
+    return json;
 }
 
 const corsMiddleware = cors({
@@ -206,18 +250,19 @@ app.get('/callback', async (req, res) => {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body,
     });
+
     const data = await r.json();
     if (!r.ok) return res.status(500).json(data);
 
-    const expires_at = Date.now() + (data.expires_in * 1000) - 10_000;
-    setTokensCookie(res, {
+    const payload = {
         access_token: data.access_token,
         refresh_token: data.refresh_token,
-        expires_at,
-    });
+        expires_at: Date.now() + (data.expires_in * 1000) - 10_000,
+    };
 
     const return_to = (req.query.return_to || process.env.FRONTEND_URL || '').replace(/\/$/, '');
-    res.redirect(`${return_to}/?linked=1`);
+    const sp = encodeURIComponent(JSON.stringify(payload));
+    res.redirect(`${return_to}/#sp=${sp}`);
 });
 
 
