@@ -9,8 +9,6 @@ const app = express();
 app.use(express.json());
 app.use(cookieParser(process.env.COOKIE_SECRET || 'mooddj-dev'));
 
-// const TOKENS_PATH = process.env.TOKENS_PATH || './tokens.json';
-
 const CORS_ORIGINS = (process.env.CORS_ORIGINS || process.env.FRONTEND_URL || 'http://localhost:5173')
     .split(',')
     .map(s => s.trim())
@@ -23,6 +21,8 @@ const ALLOW = new Set([
     'face_mesh_solution_simd_wasm_bin.js',
     'face_mesh_solution_simd_wasm_bin.wasm',
 ]);
+
+app.set('trust proxy', 1);
 
 app.use('/mp', (req, res, next) => {
     res.set('Access-Control-Allow-Origin', '*');
@@ -68,7 +68,6 @@ const {
 
 const PORT = process.env.PORT || 3001;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
-app.use(cors({ origin: [FRONTEND_URL], credentials: true }));
 
 if (!FRONTEND_URL) {
     console.warn('⚠️ FRONTEND_URL missing in .env (e.g., http://localhost:5173)');
@@ -85,7 +84,6 @@ const MOOD_SOURCE = {
 
 // Keep ALLOWED_MOODS in sync:
 const ALLOWED_MOODS = new Set(Object.keys(MOOD_SOURCE));
-
 
 /** ----------------------------------------------------------------
  * Minimal auth/token plumbing
@@ -130,8 +128,6 @@ function originAllowed(reqOrigin) {
     });
 }
 
-// Remove TOKENS_PATH, loadTokens/saveTokens, tokenStore, setTokens() etc.
-
 // Read tokens from signed cookie
 function getTokensFromReq(req) {
     try { return JSON.parse(req.signedCookies.sp || '{}'); } catch { return {}; }
@@ -141,8 +137,8 @@ function setTokensCookie(res, { access_token, refresh_token, expires_at }) {
     const payload = JSON.stringify({ access_token, refresh_token, expires_at });
     res.cookie('sp', payload, {
         httpOnly: true,
-        sameSite: 'lax',
-        secure: true,           // set false only for pure http://localhost testing
+        sameSite: 'none',
+        secure: true,
         signed: true,
         maxAge: 30 * 24 * 3600 * 1000,
     });
@@ -162,8 +158,6 @@ async function spotify(req, res, path, { method = 'GET', body } = {}) {
     return data;
 }
 
-
-
 const corsMiddleware = cors({
     credentials: true,
     origin: (origin, cb) => {
@@ -173,19 +167,9 @@ const corsMiddleware = cors({
     },
 });
 
-// Apply to all routes + preflight
-app.use(corsMiddleware);
-app.options('*', corsMiddleware);
-
-app.use(cors({
-    credentials: true,
-    origin: (origin, cb) => {
-        if (originAllowed(origin)) return cb(null, true);
-        // Log once in case you deploy to a new preview domain
-        console.warn('CORS blocked origin:', origin, 'allowed:', CORS_ORIGINS);
-        return cb(new Error('Not allowed by CORS'));
-    },
-}));
+const ORIGINS = (process.env.CORS_ORIGINS || process.env.FRONTEND_URL || '').split(',').map(s => s.trim()).filter(Boolean);
+app.use(cors({ origin: ORIGINS, credentials: true }));
+app.options('*', cors({ origin: ORIGINS, credentials: true }));
 
 app.get('/', (_req, res) => {
     res.json({ ok: true, tip: 'try /login' });
@@ -315,12 +299,12 @@ function shuffle(arr) {
     return arr.slice().sort(() => Math.random() - 0.5);
 }
 
-async function getTrackUrisFromPlaylist(playlistId, max = 500) {
+async function getTrackUrisFromPlaylist(req, res, playlistId, max = 500) {
     const uris = [];
     // keep market=from_token to help with relinking availability
     let next = `/playlists/${playlistId}/tracks?fields=items(track(uri,is_local)),next&limit=100&market=from_token`;
     while (next && uris.length < max) {
-        const page = await spotify(next);
+        const page = await spotify(req, res, next);
         const items = page?.items?.filter(Boolean) ?? [];
         for (const it of items) {
             const t = it.track;
@@ -356,7 +340,7 @@ app.post('/mood', async (req, res) => {
         if (!ALLOWED_MOODS.has(label)) return res.status(400).json({ ok: false, error: 'unsupported mood' });
 
         const sourceId = MOOD_SOURCE[label];
-        const sourceUris = shuffle(await getTrackUrisFromPlaylist(sourceId, 800));
+        const sourceUris = shuffle(await getTrackUrisFromPlaylist(req, res, sourceId, 800));
         const pick = sourceUris.slice(0, size);
 
         const { id: targetId } = await ensureUserPlaylist(req, res, 'MoodDJ');
@@ -377,7 +361,7 @@ app.post('/mood/tick', async (req, res) => {
         if (!ALLOWED_MOODS.has(label)) return res.status(400).json({ ok: false, error: 'unsupported mood' });
 
         const sourceId = MOOD_SOURCE[label];
-        const sourceUris = await getTrackUrisFromPlaylist(sourceId, 800);
+        const sourceUris = await getTrackUrisFromPlaylist(req, res, sourceId, 800);
 
         const { id: targetId } = await ensureUserPlaylist(req, res, 'MoodDJ');
         const current = await getPlaylistUrisOrdered(req, res, targetId);

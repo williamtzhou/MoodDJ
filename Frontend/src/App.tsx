@@ -115,8 +115,7 @@ export default function App() {
         window.location.assign(`${BACKEND}/login?return_to=${returnTo}`);
     };
     useEffect(() => {
-        const check = () => { fetch(`${BACKEND}/me`).then(r => { if (r.ok) setLinked(true); }).catch(() => { }); };
-        check();
+        const check = () => { fetch(`${BACKEND}/me`, { credentials: 'include' }).then(r => { if (r.ok) setLinked(true); }).catch(() => { }); };
         if (new URLSearchParams(window.location.search).get('linked') === '1') {
             check();
             const url = new URL(window.location.href);
@@ -130,8 +129,9 @@ export default function App() {
     useEffect(() => {
         const load = async () => {
             try {
-                const me = await fetch(`${BACKEND}/me`); if (!me.ok) return;
-                const r = await fetch(`${BACKEND}/playlist`); if (r.ok) setPlaylist(await r.json());
+                const me = await fetch(`${BACKEND}/me`, { credentials: 'include' }); if (!me.ok) return;
+                const r = await fetch(`${BACKEND}/playlist`, { credentials: 'include' });
+                if (r.ok) setPlaylist(await r.json());
             } catch { }
         };
         load();
