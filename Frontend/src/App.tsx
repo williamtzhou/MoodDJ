@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useEmotion, Mood } from './hooks/useEmotion';
 
-const BACKEND = import.meta.env.VITE_BACKEND_URL ?? `${window.location.protocol}//${window.location.hostname}:3001`;
+const BACKEND = (import.meta.env.VITE_BACKEND_URL || '').replace(/\/$/, '');
 
 // Number input helper (smooth typing/backspace; clamp on blur/enter/arrow)
 function useNumberField(opts: {
@@ -158,11 +158,15 @@ export default function App() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [videoEl, stream]);
 
-    // Spotify auth plumbing
     const linkSpotify = () => {
+        if (!BACKEND) {
+            alert('Backend URL is not configured. Set VITE_BACKEND_URL.');
+            return;
+        }
         const returnTo = encodeURIComponent(window.location.origin);
-        window.location.assign(`${BACKEND}/login?return_to=${returnTo}`);
+        window.location.href = `${BACKEND}/login?return_to=${returnTo}`;
     };
+
     useEffect(() => {
         const check = async () => {
             try {
