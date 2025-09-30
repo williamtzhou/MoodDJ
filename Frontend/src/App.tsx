@@ -327,9 +327,9 @@ export default function App() {
         btnBorder: '#374151',
         btnHover: '#263244',
         barTrack: '#2a2a32',
-        happy: '#f59e0b',   // yellowish-orange
-        neutral: '#9ca3af', // muted gray
-        sad: '#2563eb',     // deep blue
+        happy: '#f59e0b',
+        neutral: '#9ca3af',
+        sad: '#2563eb',
     };
 
     // Global page background & margin fix
@@ -361,20 +361,20 @@ export default function App() {
         textAlign: 'center',
         display: 'inline-block',
         lineHeight: 1.2,
-        fontSize: 14,          // enforce uniform size across buttons/links
+        fontSize: 14,
     };
 
     return (
         <div style={{ minHeight: '100vh', background: colors.bg, color: colors.text }}>
             <div style={{ maxWidth: 980, margin: '0 auto', padding: '28px 16px', fontFamily: 'Inter, system-ui, sans-serif' }}>
-                {/* Centered title (≈25% larger) */}
+                {/* Centered title */}
                 <div style={{ textAlign: 'center', marginBottom: 18 }}>
                     <h1 style={{ margin: 0, fontSize: 45 }}>🎭 Mood DJ 🎭</h1>
                     <div style={{ marginTop: 6, color: colors.textMuted, fontSize: 18 }}>by William Zhou</div>
                 </div>
 
                 <section style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '16px' }}>
-                    {/* Left: Camera + controls + Mood+Scores+Calibration */}
+                    {/* Left column */}
                     <div>
                         <video
                             ref={videoRef}
@@ -402,7 +402,7 @@ export default function App() {
                             </button>
                         </div>
 
-                        {/* Mood label + Scores */}
+                        {/* Mood + Scores */}
                         <div
                             style={{
                                 marginTop: 16,
@@ -430,7 +430,7 @@ export default function App() {
                                 );
                             })}
 
-                            {/* Calibration buttons moved here, shown only while tracking */}
+                            {/* Calibration (visible while tracking) */}
                             {tracking && (
                                 <>
                                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
@@ -448,12 +448,21 @@ export default function App() {
                         </div>
                     </div>
 
-                    {/* Right: Controls + Status (collapsible) */}
+                    {/* Right column */}
                     <div>
-                        {/* Controls row: Size / Every / Add per tick (kept on one line) */}
+                        {/* Controls row: keep Size / Every / Add per tick together */}
                         <div style={{ marginTop: 6, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-                            <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'nowrap' }}>
-                                <label>
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 10,
+                                    flexWrap: 'nowrap',
+                                    whiteSpace: 'nowrap',
+                                    flexShrink: 0,
+                                }}
+                            >
+                                <label style={{ whiteSpace: 'nowrap' }}>
                                     Size:&nbsp;
                                     <input
                                         type="text"
@@ -463,7 +472,7 @@ export default function App() {
                                         onBlur={sizeField.onBlur}
                                         onKeyDown={sizeField.onKeyDown}
                                         style={{
-                                            width: 72,
+                                            width: 64,
                                             background: colors.card,
                                             color: colors.text,
                                             border: `1px solid ${colors.border}`,
@@ -473,7 +482,7 @@ export default function App() {
                                     />
                                 </label>
 
-                                <label>
+                                <label style={{ whiteSpace: 'nowrap' }}>
                                     Every:&nbsp;
                                     <input
                                         type="text"
@@ -483,7 +492,7 @@ export default function App() {
                                         onBlur={intervalField.onBlur}
                                         onKeyDown={intervalField.onKeyDown}
                                         style={{
-                                            width: 72,
+                                            width: 64,
                                             background: colors.card,
                                             color: colors.text,
                                             border: `1px solid ${colors.border}`,
@@ -491,10 +500,10 @@ export default function App() {
                                             padding: '6px 8px',
                                         }}
                                     />
-                                    s
+                                    <span>&nbsp;s</span>
                                 </label>
 
-                                <label>
+                                <label style={{ whiteSpace: 'nowrap' }}>
                                     Add per tick:&nbsp;
                                     <input
                                         type="text"
@@ -504,7 +513,7 @@ export default function App() {
                                         onBlur={perTickField.onBlur}
                                         onKeyDown={perTickField.onKeyDown}
                                         style={{
-                                            width: 60,
+                                            width: 56,
                                             background: colors.card,
                                             color: colors.text,
                                             border: `1px solid ${colors.border}`,
