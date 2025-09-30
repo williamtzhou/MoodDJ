@@ -114,7 +114,7 @@ export default function App() {
     const [playlist, setPlaylist] = useState<{ id: string; url: string | null; uri: string; name: string } | null>(null);
     const [mood, setMood] = useState<Mood>('neutral');
 
-    const [showStatus, setShowStatus] = useState(true); // ← collapsible status
+    const [showStatus, setShowStatus] = useState(true);
 
     const moodRef = useRef<Mood>('neutral');
     useEffect(() => {
@@ -317,7 +317,7 @@ export default function App() {
         });
     };
 
-    // ====== Dark theme tokens ======
+    // ====== Dark theme tokens & globals ======
     const colors = {
         bg: '#0b0b0f',
         card: '#121219',
@@ -333,6 +333,24 @@ export default function App() {
         sad: '#2563eb',     // deep blue
     };
 
+    // Fix possible page margin / background from outside the app root
+    useEffect(() => {
+        const html = document.documentElement;
+        const body = document.body;
+        const prevHtmlBg = html.style.background;
+        const prevBodyBg = body.style.background;
+        const prevBodyMargin = body.style.margin;
+        html.style.background = colors.bg;
+        body.style.background = colors.bg;
+        body.style.margin = '0';
+        return () => {
+            html.style.background = prevHtmlBg;
+            body.style.background = prevBodyBg;
+            body.style.margin = prevBodyMargin;
+        };
+    }, []);
+
+    const BUTTON_MIN_WIDTH = 160;
     const buttonStyle: React.CSSProperties = {
         padding: '8px 12px',
         borderRadius: 8,
@@ -340,19 +358,23 @@ export default function App() {
         background: colors.btn,
         color: colors.text,
         cursor: 'pointer',
+        minWidth: BUTTON_MIN_WIDTH,
+        textAlign: 'center',
+        display: 'inline-block',
+        lineHeight: 1.2,
     };
 
     return (
         <div style={{ minHeight: '100vh', background: colors.bg, color: colors.text }}>
             <div style={{ maxWidth: 980, margin: '0 auto', padding: '28px 16px', fontFamily: 'Inter, system-ui, sans-serif' }}>
-                {/* Centered title */}
+                {/* Centered title (≈25% larger) */}
                 <div style={{ textAlign: 'center', marginBottom: 18 }}>
-                    <h1 style={{ margin: 0, fontSize: 36 }}>🎭 Mood DJ 🎭</h1>
-                    <div style={{ marginTop: 6, color: colors.textMuted, fontSize: 14 }}>by William Zhou</div>
+                    <h1 style={{ margin: 0, fontSize: 45 }}>🎭 Mood DJ 🎭</h1>
+                    <div style={{ marginTop: 6, color: colors.textMuted, fontSize: 18 }}>by William Zhou</div>
                 </div>
 
                 <section style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '16px' }}>
-                    {/* Left: Camera + controls + Scores */}
+                    {/* Left: Camera + controls + Mood+Scores */}
                     <div>
                         <video
                             ref={videoRef}
@@ -388,13 +410,13 @@ export default function App() {
                                 <button style={buttonStyle} onClick={swapNeutralSad} title="If neutral/sad feel swapped">
                                     Swap Neutral ↔ Sad
                                 </button>
-                                <button style={{ ...buttonStyle, opacity: 0.8 }} onClick={clearCalibration}>
+                                <button style={{ ...buttonStyle, opacity: 0.85 }} onClick={clearCalibration}>
                                     Clear Calib
                                 </button>
                             </div>
                         )}
 
-                        {/* Scores section (separate, under camera feed) */}
+                        {/* Mood label + Scores (separate, under camera feed) */}
                         <div
                             style={{
                                 marginTop: 16,
@@ -404,14 +426,15 @@ export default function App() {
                                 background: colors.card,
                             }}
                         >
-                            <div style={{ marginBottom: 8, fontWeight: 600 }}>Scores</div>
+                            <div style={{ textAlign: 'center', marginBottom: 8, fontWeight: 700, fontSize: 18 }}>
+                                Mood: <span style={{ textTransform: 'lowercase' }}>{mood}</span>
+                            </div>
                             {(['happy', 'neutral', 'sad'] as Mood[]).map(m => {
                                 const pct = Math.round((scores as any)[m] * 100);
-                                const fill =
-                                    m === 'happy' ? colors.happy : m === 'neutral' ? colors.neutral : colors.sad;
+                                const fill = m === 'happy' ? colors.happy : m === 'neutral' ? colors.neutral : colors.sad;
                                 const label = m === 'neutral' ? 'Chill' : m.charAt(0).toUpperCase() + m.slice(1);
                                 return (
-                                    <div key={m} style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '6px 0' }}>
+                                    <div key={m} style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '6px 0', fontSize: 14 }}>
                                         <div style={{ width: 70 }}>{label}</div>
                                         <div style={{ flex: 1, height: 10, borderRadius: 6, background: colors.barTrack, overflow: 'hidden' }}>
                                             <div style={{ width: `${pct}%`, height: '100%', background: fill }} />
@@ -423,23 +446,10 @@ export default function App() {
                         </div>
                     </div>
 
-                    {/* Right: Mood chip + controls + Status (collapsible) */}
+                    {/* Right: Controls + Status (collapsible) */}
                     <div>
-                        <div style={{ display: 'inline-flex', gap: 8 }}>
-                            <span
-                                style={{
-                                    padding: '8px 12px',
-                                    borderRadius: 8,
-                                    border: `1px solid ${colors.border}`,
-                                    background: colors.card,
-                                    textTransform: 'lowercase',
-                                }}
-                            >
-                                {mood}
-                            </span>
-                        </div>
-
-                        <div style={{ marginTop: 12, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                        {/* Controls row: Size / Every / Add per tick + Actions */}
+                        <div style={{ marginTop: 6, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                             <label>
                                 Size:&nbsp;
                                 <input
@@ -507,7 +517,12 @@ export default function App() {
                             <button style={buttonStyle} onClick={addOne} disabled={!linked}>
                                 Add One
                             </button>
-                            <button style={{ ...buttonStyle, opacity: linked ? 0.8 : 1 }} onClick={linkSpotify} disabled={linked} title={linked ? 'Already linked' : ''}>
+                            <button
+                                style={{ ...buttonStyle, opacity: linked ? 0.85 : 1 }}
+                                onClick={linkSpotify}
+                                disabled={linked}
+                                title={linked ? 'Already linked' : ''}
+                            >
                                 {linked ? 'Link Spotify ✔' : 'Link Spotify'}
                             </button>
 
@@ -516,21 +531,14 @@ export default function App() {
                                     href={playlist.url}
                                     target="_blank"
                                     rel="noreferrer"
-                                    style={{
-                                        padding: '8px 12px',
-                                        borderRadius: 8,
-                                        border: `1px solid ${colors.btnBorder}`,
-                                        background: colors.btn,
-                                        color: colors.text,
-                                        textDecoration: 'none',
-                                    }}
+                                    style={{ ...buttonStyle, textDecoration: 'none' }}
                                 >
                                     Open MoodDJ on Spotify
                                 </a>
                             )}
                         </div>
 
-                        {/* Collapsible Status (includes Detector/Tracking; trims other lines) */}
+                        {/* Collapsible Status*/}
                         <div
                             style={{
                                 marginTop: 16,
@@ -551,7 +559,6 @@ export default function App() {
                                 <ul style={{ marginTop: 8, paddingLeft: 18 }}>
                                     <li>Camera: {cameraOn ? 'on' : 'off'}</li>
                                     <li>Spotify: {linked ? 'linked' : 'not linked'}</li>
-                                    <li>Playlist size target: {size}</li>
                                     <li>
                                         Detector: {ready ? 'ready' : 'loading'} {emoRunning ? '(running)' : ''}
                                     </li>
@@ -562,6 +569,22 @@ export default function App() {
                         </div>
                     </div>
                 </section>
+
+                {/* Bottom-left "Documentation" button */}
+                <a
+                    href="https://github.com/williamtzhou/MoodDJ"
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                        position: 'fixed',
+                        left: 16,
+                        bottom: 16,
+                        ...buttonStyle,
+                        textDecoration: 'none',
+                    }}
+                >
+                    Documentation
+                </a>
             </div>
         </div>
     );
