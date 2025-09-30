@@ -364,6 +364,13 @@ export default function App() {
         fontSize: 14,
     };
 
+    // Smaller button variant used inside the calibration grid (no minWidth; fills grid cell)
+    const smallButtonStyle: React.CSSProperties = {
+        ...buttonStyle,
+        minWidth: 0,
+        width: '100%',
+    };
+
     return (
         <div style={{ minHeight: '100vh', background: colors.bg, color: colors.text }}>
             <div style={{ maxWidth: 980, margin: '0 auto', padding: '28px 16px', fontFamily: 'Inter, system-ui, sans-serif' }}>
@@ -433,10 +440,18 @@ export default function App() {
                             {/* Calibration (visible while tracking) */}
                             {tracking && (
                                 <>
-                                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
-                                        <button style={buttonStyle} onClick={() => captureCalibration('happy')}>Set Happy</button>
-                                        <button style={buttonStyle} onClick={() => captureCalibration('neutral')}>Set Neutral</button>
-                                        <button style={buttonStyle} onClick={() => captureCalibration('sad')}>Set Sad</button>
+                                    {/* Force 3 buttons on a single row */}
+                                    <div
+                                        style={{
+                                            display: 'grid',
+                                            gridTemplateColumns: 'repeat(3, 1fr)',
+                                            gap: 8,
+                                            marginTop: 10,
+                                        }}
+                                    >
+                                        <button style={smallButtonStyle} onClick={() => captureCalibration('happy')}>Set Happy</button>
+                                        <button style={smallButtonStyle} onClick={() => captureCalibration('neutral')}>Set Neutral</button>
+                                        <button style={smallButtonStyle} onClick={() => captureCalibration('sad')}>Set Sad</button>
                                     </div>
                                     <div style={{ marginTop: 8 }}>
                                         <button style={{ ...buttonStyle, width: '100%' }} onClick={clearCalibration}>
