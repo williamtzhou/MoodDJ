@@ -25,40 +25,42 @@ const BACKEND =
     (import.meta as any).env?.VITE_BACKEND_URL ??
     `${location.protocol}//${location.hostname}:3001`;
 
+// Served by Vercel from Frontend/public/mediapipe
 const MP_BASE = '/mediapipe';
-
-function scoreFromLandmarks(_pts: any): { mood: Mood; scores: Scores } {
-    return { mood: 'neutral', scores: { happy: 0.33, neutral: 0.34, sad: 0.33 } };
-}
 
 let mpScriptPromise: Promise<void> | null = null;
 
 function loadScript(src: string): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-    if (document.querySelector(`script[data-src="${src}"]`)) return resolve();
-    const s = document.createElement('script');
-    s.src = src;
-    s.async = true;
-    s.dataset.src = src;
-    s.onload = () => resolve();
-    s.onerror = () => reject(new Error(`Failed to load ${src}`));
-    document.head.appendChild(s);
-  });
+        if (document.querySelector(`script[data-src="${src}"]`)) return resolve();
+        const s = document.createElement('script');
+        s.async = true;
+        s.src = src;
+        s.dataset.src = src;
+        s.onload = () => resolve();
+        s.onerror = () => reject(new Error(`Failed to load ${src}`));
+        document.head.appendChild(s);
+    });
 }
 
+// Ensures window.FaceMesh (MediaPipe runtime) is available and configured
 async function ensureMediaPipe(): Promise<any> {
     if ((window as any).FaceMesh) return (window as any).FaceMesh;
 
+    // Must exist BEFORE loading face_mesh.js so the wasm/data are requested from /mediapipe
     (window as any).Module = (window as any).Module || {};
     (window as any).Module.locateFile = (f: string) => `${MP_BASE}/${f}`;
 
-    await loadScript(`${MP_BASE}/face_mesh.js`);
-
-    await loadScript(`${MP_BASE}/face_mesh_solution_wasm_bin.js`);
+    if (!mpScriptPromise) mpScriptPromise = loadScript(`${MP_BASE}/face_mesh.js`);
+    await mpScriptPromise;
 
     const FaceMeshCtor = (window as any).FaceMesh;
     if (!FaceMeshCtor) throw new Error('FaceMesh global not loaded');
     return FaceMeshCtor;
+}
+
+function scoreFromLandmarks(_pts: any): { mood: Mood; scores: Scores } {
+    return { mood: 'neutral', scores: { happy: 0.33, neutral: 0.34, sad: 0.33 } };
 }
 
 export function useEmotion(videoEl: HTMLVideoElement | null): Return {
@@ -85,6 +87,7 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
         (async () => {
             try {
                 const FaceMeshCtor = await ensureMediaPipe();
+
                 const fm = new FaceMeshCtor({
                     locateFile: (f: string) => `${MP_BASE}/${f}`,
                 });
@@ -132,7 +135,9 @@ export function useEmotion(videoEl: HTMLVideoElement | null): Return {
 
         return () => {
             cancelled = true;
-            try { mpRef.current?.close?.(); } catch { }
+            try {
+                mpRef.current?.close?.();
+            } catch { }
             mpRef.current = null;
         };
     }, []);
