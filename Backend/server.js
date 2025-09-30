@@ -5,12 +5,11 @@ import fetch from 'node-fetch';
 import fs from 'fs';
 import cookieParser from 'cookie-parser';
 
-app.use(cookieParser());
-
-// const TOKENS_PATH = process.env.TOKENS_PATH || './tokens.json';
-
 const app = express();
 app.use(express.json());
+app.use(cookieParser(process.env.COOKIE_SECRET || 'mooddj-dev'));
+
+// const TOKENS_PATH = process.env.TOKENS_PATH || './tokens.json';
 
 const CORS_ORIGINS = (process.env.CORS_ORIGINS || process.env.FRONTEND_URL || 'http://localhost:5173')
     .split(',')
@@ -178,10 +177,10 @@ async function ensureAccessToken(req, res) {
     return next.access_token;
 }
 
-async function spotifyFetchWithReq(req, res, path, { method = 'GET', body } = {}) {
+async function spotify(req, res, path, { method = 'GET', body } = {}) {
     const base = 'https://api.spotify.com/v1';
     const url = /^https?:\/\//i.test(path) ? path : `${base}${path}`;
-    const token = await ensureAccessToken(req, res);
+    const token = await ensureAccessToken(req, res); // your cookie-based version
     const r = await fetch(url, {
         method,
         headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
@@ -191,6 +190,7 @@ async function spotifyFetchWithReq(req, res, path, { method = 'GET', body } = {}
     if (!r.ok) throw new Error(`${method} ${url} failed: ${r.status} ${JSON.stringify(data)}`);
     return data;
 }
+
 
 
 const corsMiddleware = cors({
@@ -205,20 +205,6 @@ const corsMiddleware = cors({
 // Apply to all routes + preflight
 app.use(corsMiddleware);
 app.options('*', corsMiddleware);
-
-// function loadTokens() {
-//     try { return JSON.parse(fs.readFileSync(TOKENS_PATH, 'utf8')); } catch { return {}; }
-// }
-// function saveTokens(obj) {
-//     try { fs.writeFileSync(TOKENS_PATH, JSON.stringify(obj, null, 2)); } catch { }
-// }
-
-// async function setTokens({ access_token, refresh_token, expires_at }) {
-//     tokenStore.access_token = access_token;
-//     if (refresh_token) tokenStore.refresh_token = refresh_token;
-//     tokenStore.expires_at = expires_at;
-//     saveTokens(tokenStore);
-// }
 
 app.use(cors({
     credentials: true,
@@ -306,70 +292,46 @@ async function ensureAccessToken() {
     return tokenStore.access_token;
 }
 
-/** ----------------------------------------------------------------
- * Very small helpers to manage your target playlist
- * ---------------------------------------------------------------- */
-let userCache = { id: null };
-let playlistCache = { id: null, url: null, uri: null, name: null };
-
 async function getCurrentUserId() {
     if (userCache.id) return userCache.id;
-    const me = await spotifyFetch('/me');
+    const me = await spotify('/me');
     userCache.id = me.id;
     return userCache.id;
 }
 
-async function ensurePlaylistByName(name = 'MoodDJ') {
-    if (playlistCache.id) return playlistCache;
+async function ensureUserPlaylist(req, res, name = 'MoodDJ') {
     let next = '/me/playlists?limit=50';
     while (next) {
-        const page = await spotifyFetch(next);
+        const page = await spotify(req, res, next);
         const found = page.items.find(p => p.name === name);
         if (found) {
-            playlistCache = {
-                id: found.id,
-                url: found.external_urls?.spotify ?? null,
-                uri: found.uri,
-                name: found.name,
-            };
-            return playlistCache;
+            return { id: found.id, url: found.external_urls?.spotify ?? null, uri: found.uri, name: found.name };
         }
         next = page.next;
     }
-    const userId = await getCurrentUserId();
-    const created = await spotifyFetch(`/users/${encodeURIComponent(userId)}/playlists`, {
+    const me = await spotify(req, res, '/me');
+    const created = await spotify(req, res, `/users/${encodeURIComponent(me.id)}/playlists`, {
         method: 'POST',
         body: { name, public: true, description: 'Auto-created by MoodDJ' },
     });
-    playlistCache = {
-        id: created.id,
-        url: created.external_urls?.spotify ?? null,
-        uri: created.uri,
-        name: created.name,
-    };
-    return playlistCache;
+    return { id: created.id, url: created.external_urls?.spotify ?? null, uri: created.uri, name: created.name };
 }
 
-async function getPlaylistUrisOrdered(playlistId) {
+async function getPlaylistUrisOrdered(req, res, playlistId) {
     const uris = [];
     let next = `/playlists/${playlistId}/tracks?fields=items(track(uri,is_local)),next&limit=100`;
     while (next) {
-        const page = await spotifyFetch(next);
-        const items = page?.items?.filter(Boolean) ?? [];
-        for (const it of items) {
-            const t = it.track;
-            if (t?.uri && !t.is_local) uris.push(t.uri);
+        const page = await spotify(req, res, next);
+        for (const it of (page?.items ?? [])) {
+            const t = it.track; if (t?.uri && !t.is_local) uris.push(t.uri);
         }
         next = page?.next || null;
     }
     return uris;
 }
 
-async function replacePlaylistWithUris(playlistId, uris) {
-    await spotifyFetch(`/playlists/${playlistId}/tracks`, {
-        method: 'PUT',
-        body: { uris },
-    });
+async function replacePlaylistWithUris(req, res, playlistId, uris) {
+    await spotify(req, res, `/playlists/${playlistId}/tracks`, { method: 'PUT', body: { uris } });
 }
 
 /** ----------------------------------------------------------------
@@ -384,7 +346,7 @@ async function getTrackUrisFromPlaylist(playlistId, max = 500) {
     // keep market=from_token to help with relinking availability
     let next = `/playlists/${playlistId}/tracks?fields=items(track(uri,is_local)),next&limit=100&market=from_token`;
     while (next && uris.length < max) {
-        const page = await spotifyFetch(next);
+        const page = await spotify(next);
         const items = page?.items?.filter(Boolean) ?? [];
         for (const it of items) {
             const t = it.track;
@@ -404,40 +366,15 @@ async function getTrackUrisFromPlaylist(playlistId, max = 500) {
  * Public endpoints used by the frontend
  * ---------------------------------------------------------------- */
 app.get('/me', async (req, res) => {
-    try { const me = await spotifyFetchWithReq(req, res, '/me'); res.json({ id: me.id, display_name: me.display_name }); }
+    try { const me = await spotify(req, res, '/me'); res.json({ id: me.id, display_name: me.display_name }); }
     catch (e) { res.status(401).json({ error: String(e) }); }
 });
 
 app.get('/playlist', async (req, res) => {
-    try {
-        // per-user playlist
-        async function ensurePlaylistByName(name = 'MoodDJ') {
-            let next = '/me/playlists?limit=50';
-            while (next) {
-                const page = await spotifyFetchWithReq(req, res, next);
-                const found = page.items.find(p => p.name === name);
-                if (found) return { id: found.id, url: found.external_urls?.spotify ?? null, uri: found.uri, name: found.name };
-                next = page.next;
-            }
-            const me = await spotifyFetchWithReq(req, res, '/me');
-            const created = await spotifyFetchWithReq(req, res, `/users/${encodeURIComponent(me.id)}/playlists`, {
-                method: 'POST',
-                body: { name, public: true, description: 'Auto-created by MoodDJ' },
-            });
-            return { id: created.id, url: created.external_urls?.spotify ?? null, uri: created.uri, name: created.name };
-        }
-        const pl = await ensurePlaylistByName('MoodDJ');
-        res.json(pl);
-    } catch (e) { res.status(500).json({ error: String(e) }); }
+    try { const pl = await ensureUserPlaylist(req, res, 'MoodDJ'); res.json(pl); }
+    catch (e) { res.status(500).json({ error: String(e) }); }
 });
 
-
-
-/**
- * POST /mood
- * Body: { label: 'happy'|'sad'|'neutral', size?: number }
- * Replaces the target playlist with N tracks pulled ONLY from the fixed source playlist.
- */
 app.post('/mood', async (req, res) => {
     try {
         const label = String(req.body?.label || 'neutral');
@@ -446,15 +383,10 @@ app.post('/mood', async (req, res) => {
 
         const sourceId = MOOD_SOURCE[label];
         const sourceUris = shuffle(await getTrackUrisFromPlaylist(sourceId, 800));
-        if (!sourceUris.length) throw new Error('No tracks in source playlist');
-
         const pick = sourceUris.slice(0, size);
-        const { id: targetId } = await ensurePlaylistByName('MoodDJ');
-        await replacePlaylistWithUris(targetId, pick);
 
-        const seen = getSeenSet(label);
-        pick.forEach(u => seen.add(u));
-
+        const { id: targetId } = await ensureUserPlaylist(req, res, 'MoodDJ');
+        await replacePlaylistWithUris(req, res, targetId, pick);
 
         res.json({ ok: true, playlistId: targetId, label, size, replaced: pick.length });
     } catch (e) {
@@ -463,11 +395,6 @@ app.post('/mood', async (req, res) => {
     }
 });
 
-/**
- * POST /mood/tick
- * Body: { label: 'happy'|'sad'|'neutral', keep?: number }
- * Appends ONE novel track from the fixed source playlist and trims to `keep`.
- */
 app.post('/mood/tick', async (req, res) => {
     try {
         const label = String(req.body?.label || 'happy');
@@ -477,49 +404,25 @@ app.post('/mood/tick', async (req, res) => {
 
         const sourceId = MOOD_SOURCE[label];
         const sourceUris = await getTrackUrisFromPlaylist(sourceId, 800);
-        if (!sourceUris.length) throw new Error('No tracks in source playlist');
 
-        const { id: targetId } = await ensurePlaylistByName('MoodDJ');
-        const current = await getPlaylistUrisOrdered(targetId);
-        const seen = getSeenSet(label);
-        for (const u of current) seen.add(u);
+        const { id: targetId } = await ensureUserPlaylist(req, res, 'MoodDJ');
+        const current = await getPlaylistUrisOrdered(req, res, targetId);
 
+        const seen = new Set(current);
         const pool = sourceUris.slice().sort(() => Math.random() - 0.5);
-        const inPlaylist = new Set(current);
         const picks = [];
 
-        // Select up to N novel tracks; recycle only after a full pass
         for (let i = 0; i < count; i++) {
-            let chosen = null;
-
-            for (const uri of pool) {
-                if (!seen.has(uri) && !inPlaylist.has(uri)) { chosen = uri; break; }
-            }
-
-            if (!chosen) {
-                // exhausted → recycle: reset seen and try again once
-                if (seen.size >= sourceUris.length) seen.clear();
-                for (const uri of pool) {
-                    if (!seen.has(uri) && !inPlaylist.has(uri)) { chosen = uri; break; }
-                }
-            }
-
-            if (chosen) {
-                picks.push(chosen);
-                seen.add(chosen);
-                inPlaylist.add(chosen);
-            } else {
-                break; // nothing else to add
-            }
+            const choice = pool.find(u => !seen.has(u));
+            if (!choice) break;
+            picks.push(choice); seen.add(choice);
         }
 
-        if (picks.length === 0) {
-            return res.json({ ok: true, playlistId: targetId, keep, added: 0, reason: 'no-picks' });
-        }
+        if (!picks.length) return res.json({ ok: true, playlistId: targetId, keep, added: 0, reason: 'no-picks' });
 
         let next = current.concat(picks);
         if (next.length > keep) next = next.slice(next.length - keep);
-        await replacePlaylistWithUris(targetId, next);
+        await replacePlaylistWithUris(req, res, targetId, next);
 
         res.json({ ok: true, playlistId: targetId, keep, added: picks.length, picks });
     } catch (e) {

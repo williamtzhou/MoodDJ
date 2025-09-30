@@ -129,57 +129,75 @@ function extractMetrics(pts: Pt[]) {
     return { mouthWidth, mouthOpen, eyeOpen, smileUp, scale: eyeDist };
 }
 
-function toScores(metrics: ReturnType<typeof extractMetrics>, calib: Calib): Scores {
-  const { mouthWidth, mouthOpen, eyeOpen, smileUp } = metrics;
-
-  const base = calib.base ?? {
-    eyeGap: 0.055,
-    mouthOpen: 0.025,
-    smileUp: 0.00,
-    mouthWidth: 0.48,
-  };
-
-  const dSmile = smileUp - base.smileUp;
-  const dOpen  = mouthOpen - base.mouthOpen;
-
-  // --- Neutral "dead-zone" around baseline ------------------------
-  // If mouth upturn and openness are close to baseline, strongly prefer neutral.
-  const TH_SMILE = 0.010; // widen these to make neutral easier
-  const TH_OPEN  = 0.010;
-  const inNeutralBand =
-    Math.abs(dSmile) < TH_SMILE && Math.abs(dOpen) < TH_OPEN;
-
-  // Gaussian falloff from baseline so neutral decays smoothly.
-  const zSmile = dSmile / TH_SMILE;
-  const zOpen  = dOpen  / TH_OPEN;
-  const neutralRaw = Math.exp(-0.5 * (zSmile * zSmile * 0.9 + zOpen * zOpen * 0.6))
-                   * (inNeutralBand ? 1.15 : 1); // boost when inside band
-
-  // --- Happier/sadder with gentler slopes -------------------------
-  const S1 = 35;  // smaller = gentler ramp
-  const S2 = 25;
-
-  // Happy: corner upturn + a little openness
-  const happyRaw =
-    0.75 * (1 / (1 + Math.exp(-dSmile * S1))) +
-    0.25 * (1 / (1 + Math.exp( -(dOpen) * S2)));
-
-  // Sad: corner downturn + slight closure + eye closure
-  const sadRaw =
-    0.65 * (1 / (1 + Math.exp( (dSmile) * S1))) +          // inverse of happySmile
-    0.20 * (1 / (1 + Math.exp( (dOpen - 0.002) * S2))) +   // more closed → sad
-    0.15 * (1 / (1 + Math.exp( ((eyeOpen - base.eyeGap) + 0.002) * 80)));
-
-  let happy = happyRaw, sad = sadRaw, neutral = neutralRaw;
-  if (calib.swapNS) { const t = neutral; neutral = sad; sad = t; }
-
-  const sum = happy + neutral + sad || 1;
-  return {
-    happy: Math.min(1, Math.max(0, happy / sum)),
-    neutral: Math.min(1, Math.max(0, neutral / sum)),
-    sad: Math.min(1, Math.max(0, sad / sum)),
-  };
+function softmax3(a: number, b: number, c: number, T = 1.8) {
+    // higher T => flatter distribution
+    const ex = (x: number) => Math.exp(x / T);
+    const ea = ex(a), eb = ex(b), ec = ex(c);
+    const s = ea + eb + ec || 1;
+    return { a: ea / s, b: eb / s, c: ec / s };
 }
+
+function toScores(metrics: ReturnType<typeof extractMetrics>, calib: Calib): Scores {
+    const { mouthWidth, mouthOpen, eyeOpen, smileUp } = metrics;
+
+    const base = calib.base ?? {
+        eyeGap: 0.055,
+        mouthOpen: 0.025,
+        smileUp: 0.00,
+        mouthWidth: 0.48,
+    };
+
+    const dSmile = smileUp - base.smileUp;
+    const dOpen = mouthOpen - base.mouthOpen;
+    const dEye = eyeOpen - base.eyeGap;
+
+    // --- Neutral "dead-zone" widened a bit -------------------------
+    const TH_SMILE = 0.015;   // was 0.010
+    const TH_OPEN = 0.015;   // was 0.010
+    const inNeutralBand = Math.abs(dSmile) < TH_SMILE && Math.abs(dOpen) < TH_OPEN;
+
+    // Gaussian around baseline; boost inside the band
+    const zSmile = dSmile / TH_SMILE;
+    const zOpen = dOpen / TH_OPEN;
+    let neutralRaw = Math.exp(-0.5 * (zSmile * zSmile * 0.7 + zOpen * zOpen * 0.7));
+    if (inNeutralBand) neutralRaw *= 1.25;
+
+    // --- Happy / Sad ramps made gentler ----------------------------
+    const S1 = 28;  // smile slope (smaller = gentler)
+    const S2 = 18;  // mouth-open slope
+
+    const sigmoid = (x: number) => 1 / (1 + Math.exp(-x));
+
+    // Happy: upturned corners + some openness
+    const happyRaw =
+        0.75 * sigmoid(dSmile * S1) +
+        0.25 * sigmoid((dOpen) * S2);
+
+    // Sad: downturned corners + slight closure + a little eye-close
+    const sadRaw =
+        0.70 * sigmoid((-dSmile) * S1) +
+        0.20 * sigmoid((-(dOpen) + 0.002) * S2) +
+        0.10 * sigmoid((-(dEye) + 0.001) * 90);
+
+    // Optionally swap neutral/sad if user asked
+    let h = happyRaw, n = neutralRaw, s = sadRaw;
+    if (calib.swapNS) { const t = n; n = s; s = t; }
+
+    // Temperature-softmax to avoid 90% peaks; target ~60–70% on clear faces
+    const { a: H, b: N, c: S } = softmax3(h, n, s, 1.8);
+
+    // Small neutral floor so it isn’t 0% when face is stable
+    const minNeutral = 0.08;
+    const adjN = Math.max(N, minNeutral);
+    const renorm = H + adjN + S || 1;
+
+    return {
+        happy: H / renorm,
+        neutral: adjN / renorm,
+        sad: S / renorm,
+    };
+}
+
 
 
 /* --------------------------- hook ------------------------------- */
