@@ -33,13 +33,6 @@ function scoreFromLandmarks(_pts: any): { mood: Mood; scores: Scores } {
 
 function loadScriptOnce(src: string): Promise<void> {
     return new Promise((resolve, reject) => {
-        document
-            .querySelectorAll<HTMLScriptElement>('script[data-mediapipe]')
-            .forEach(s => {
-                if (s.src.includes('simd_wasm_bin')) s.remove();
-            });
-
-        // already loaded?
         const ex = document.querySelector<HTMLScriptElement>(`script[data-src="${src}"]`);
         if (ex && (ex as any)._loaded) return resolve();
 
@@ -48,7 +41,6 @@ function loadScriptOnce(src: string): Promise<void> {
         s.async = false;
         s.defer = false;
         s.setAttribute('data-src', src);
-        s.setAttribute('data-mediapipe', '1');
         s.onload = () => { (s as any)._loaded = true; resolve(); };
         s.onerror = () => reject(new Error(`Failed to load ${src}`));
         document.head.appendChild(s);
@@ -62,9 +54,7 @@ async function ensureMediaPipe(): Promise<any> {
     (window as any).Module.locateFile = (f: string) => `${MP_BASE}/${f}`;
 
     await loadScriptOnce(`${MP_BASE}/face_mesh.js`);
-    await loadScriptOnce(`${MP_BASE}/face_mesh_solution_packed_assets_loader.js`);
 
-    // only non-SIMD runtime
     await loadScriptOnce(`${MP_BASE}/face_mesh_solution_wasm_bin.js`);
 
     const FaceMeshCtor = (window as any).FaceMesh;
