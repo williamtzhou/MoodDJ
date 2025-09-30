@@ -47,6 +47,10 @@ function loadScriptOnce(src: string): Promise<void> {
 
 async function ensureMediaPipe(): Promise<any> {
     if ((window as any).FaceMesh) return (window as any).FaceMesh;
+
+    (window as any).Module = (window as any).Module || {};
+    (window as any).Module.locateFile = (f: string) => `${MP_BASE}/${f}`;
+    
     await loadScriptOnce(`${MP_BASE}/face_mesh.js`);
     await loadScriptOnce(`${MP_BASE}/face_mesh_solution_packed_assets_loader.js`);
     await loadScriptOnce(`${MP_BASE}/face_mesh_solution_simd_wasm_bin.js`);
