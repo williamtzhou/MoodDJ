@@ -37,7 +37,7 @@ function loadScriptOnce(src: string): Promise<void> {
         if (ex && (ex as any)._loaded) return resolve();
         const s = document.createElement('script');
         s.src = src;
-        s.async = false; s.defer = false; // preserve order
+        s.async = false; s.defer = false;
         s.setAttribute('data-src', src);
         s.onload = () => { (s as any)._loaded = true; resolve(); };
         s.onerror = () => reject(new Error(`Failed to load ${src}`));
@@ -50,10 +50,17 @@ async function ensureMediaPipe(): Promise<any> {
 
     (window as any).Module = (window as any).Module || {};
     (window as any).Module.locateFile = (f: string) => `${MP_BASE}/${f}`;
-    
+
     await loadScriptOnce(`${MP_BASE}/face_mesh.js`);
     await loadScriptOnce(`${MP_BASE}/face_mesh_solution_packed_assets_loader.js`);
-    await loadScriptOnce(`${MP_BASE}/face_mesh_solution_simd_wasm_bin.js`);
+
+    // Try SIMD first, fall back to non-SIMD
+    try {
+        await loadScriptOnce(`${MP_BASE}/face_mesh_solution_simd_wasm_bin.js`);
+    } catch {
+        await loadScriptOnce(`${MP_BASE}/face_mesh_solution_wasm_bin.js`);
+    }
+
     const FaceMeshCtor = (window as any).FaceMesh;
     if (!FaceMeshCtor) throw new Error('FaceMesh global not loaded after scripts');
     return FaceMeshCtor;
