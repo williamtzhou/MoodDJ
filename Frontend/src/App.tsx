@@ -151,7 +151,6 @@ export default function App() {
         stop: stopEmotion,
         captureCalibration,
         clearCalibration,
-        swapNeutralSad,
     } = useEmotion(videoEl);
 
     useEffect(() => {
@@ -333,7 +332,7 @@ export default function App() {
         sad: '#2563eb',     // deep blue
     };
 
-    // Fix possible page margin / background from outside the app root
+    // Global page background & margin fix
     useEffect(() => {
         const html = document.documentElement;
         const body = document.body;
@@ -362,6 +361,7 @@ export default function App() {
         textAlign: 'center',
         display: 'inline-block',
         lineHeight: 1.2,
+        fontSize: 14,          // enforce uniform size across buttons/links
     };
 
     return (
@@ -374,7 +374,7 @@ export default function App() {
                 </div>
 
                 <section style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '16px' }}>
-                    {/* Left: Camera + controls + Mood+Scores */}
+                    {/* Left: Camera + controls + Mood+Scores+Calibration */}
                     <div>
                         <video
                             ref={videoRef}
@@ -402,21 +402,7 @@ export default function App() {
                             </button>
                         </div>
 
-                        {tracking && (
-                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
-                                <button style={buttonStyle} onClick={() => captureCalibration('neutral')}>Set Neutral</button>
-                                <button style={buttonStyle} onClick={() => captureCalibration('happy')}>Set Happy</button>
-                                <button style={buttonStyle} onClick={() => captureCalibration('sad')}>Set Sad</button>
-                                <button style={buttonStyle} onClick={swapNeutralSad} title="If neutral/sad feel swapped">
-                                    Swap Neutral ↔ Sad
-                                </button>
-                                <button style={{ ...buttonStyle, opacity: 0.85 }} onClick={clearCalibration}>
-                                    Clear Calib
-                                </button>
-                            </div>
-                        )}
-
-                        {/* Mood label + Scores (separate, under camera feed) */}
+                        {/* Mood label + Scores */}
                         <div
                             style={{
                                 marginTop: 16,
@@ -443,73 +429,91 @@ export default function App() {
                                     </div>
                                 );
                             })}
+
+                            {/* Calibration buttons moved here, shown only while tracking */}
+                            {tracking && (
+                                <>
+                                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+                                        <button style={buttonStyle} onClick={() => captureCalibration('happy')}>Set Happy</button>
+                                        <button style={buttonStyle} onClick={() => captureCalibration('neutral')}>Set Neutral</button>
+                                        <button style={buttonStyle} onClick={() => captureCalibration('sad')}>Set Sad</button>
+                                    </div>
+                                    <div style={{ marginTop: 8 }}>
+                                        <button style={{ ...buttonStyle, width: '100%' }} onClick={clearCalibration}>
+                                            Clear Calibration
+                                        </button>
+                                    </div>
+                                </>
+                            )}
                         </div>
                     </div>
 
                     {/* Right: Controls + Status (collapsible) */}
                     <div>
-                        {/* Controls row: Size / Every / Add per tick + Actions */}
+                        {/* Controls row: Size / Every / Add per tick (kept on one line) */}
                         <div style={{ marginTop: 6, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-                            <label>
-                                Size:&nbsp;
-                                <input
-                                    type="text"
-                                    inputMode="numeric"
-                                    value={sizeField.text}
-                                    onChange={sizeField.onChange}
-                                    onBlur={sizeField.onBlur}
-                                    onKeyDown={sizeField.onKeyDown}
-                                    style={{
-                                        width: 72,
-                                        background: colors.card,
-                                        color: colors.text,
-                                        border: `1px solid ${colors.border}`,
-                                        borderRadius: 6,
-                                        padding: '6px 8px',
-                                    }}
-                                />
-                            </label>
+                            <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'nowrap' }}>
+                                <label>
+                                    Size:&nbsp;
+                                    <input
+                                        type="text"
+                                        inputMode="numeric"
+                                        value={sizeField.text}
+                                        onChange={sizeField.onChange}
+                                        onBlur={sizeField.onBlur}
+                                        onKeyDown={sizeField.onKeyDown}
+                                        style={{
+                                            width: 72,
+                                            background: colors.card,
+                                            color: colors.text,
+                                            border: `1px solid ${colors.border}`,
+                                            borderRadius: 6,
+                                            padding: '6px 8px',
+                                        }}
+                                    />
+                                </label>
 
-                            <label>
-                                Every:&nbsp;
-                                <input
-                                    type="text"
-                                    inputMode="numeric"
-                                    value={intervalField.text}
-                                    onChange={intervalField.onChange}
-                                    onBlur={intervalField.onBlur}
-                                    onKeyDown={intervalField.onKeyDown}
-                                    style={{
-                                        width: 72,
-                                        background: colors.card,
-                                        color: colors.text,
-                                        border: `1px solid ${colors.border}`,
-                                        borderRadius: 6,
-                                        padding: '6px 8px',
-                                    }}
-                                />
-                                s
-                            </label>
+                                <label>
+                                    Every:&nbsp;
+                                    <input
+                                        type="text"
+                                        inputMode="numeric"
+                                        value={intervalField.text}
+                                        onChange={intervalField.onChange}
+                                        onBlur={intervalField.onBlur}
+                                        onKeyDown={intervalField.onKeyDown}
+                                        style={{
+                                            width: 72,
+                                            background: colors.card,
+                                            color: colors.text,
+                                            border: `1px solid ${colors.border}`,
+                                            borderRadius: 6,
+                                            padding: '6px 8px',
+                                        }}
+                                    />
+                                    s
+                                </label>
 
-                            <label>
-                                Add per tick:&nbsp;
-                                <input
-                                    type="text"
-                                    inputMode="numeric"
-                                    value={perTickField.text}
-                                    onChange={perTickField.onChange}
-                                    onBlur={perTickField.onBlur}
-                                    onKeyDown={perTickField.onKeyDown}
-                                    style={{
-                                        width: 60,
-                                        background: colors.card,
-                                        color: colors.text,
-                                        border: `1px solid ${colors.border}`,
-                                        borderRadius: 6,
-                                        padding: '6px 8px',
-                                    }}
-                                />
-                            </label>
+                                <label>
+                                    Add per tick:&nbsp;
+                                    <input
+                                        type="text"
+                                        inputMode="numeric"
+                                        value={perTickField.text}
+                                        onChange={perTickField.onChange}
+                                        onBlur={perTickField.onBlur}
+                                        onKeyDown={perTickField.onKeyDown}
+                                        style={{
+                                            width: 60,
+                                            background: colors.card,
+                                            color: colors.text,
+                                            border: `1px solid ${colors.border}`,
+                                            borderRadius: 6,
+                                            padding: '6px 8px',
+                                        }}
+                                    />
+                                </label>
+                            </div>
 
                             <button style={buttonStyle} onClick={fillPlaylist} disabled={!linked}>
                                 Fill / Replace Playlist
@@ -538,7 +542,7 @@ export default function App() {
                             )}
                         </div>
 
-                        {/* Collapsible Status*/}
+                        {/* Collapsible Status */}
                         <div
                             style={{
                                 marginTop: 16,
