@@ -22,9 +22,9 @@ A facial recognition-powered music curator working through the Spotify API.
 ## **Setup**
 1. Visit **mood-dj.vercel.app**.
 2. Click **Link Spotify**.
-3. Log in with Google (add account)
+3. Log in with Google (add account)  
    **Email:** mooddjtesting@gmail.com  
-   **Password:** mooddjdemo
+   **Password:** mooddjdemo  
    (This is just a demo, view the Notes section if you're interested in personal use!)
 4. Click **Start Camera** (allow camera permissions).
 5. To personally calibrate, make a facial expression, then click the corresponding **Set Happy / Set Neutral / Set Sad** button.
