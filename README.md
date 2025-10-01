@@ -1,12 +1,14 @@
+<p align="center">
+  <img src="Frontend/MoodDJ_Banner.png" alt="Mood DJ banner" width="360">
+</p>
+
 <div align="center">
 
 # **Mood DJ — User Guide**
 
 A facial recognition-powered music curator working through the Spotify API.
 
-<p align="center">
-  <img src="Frontend/MoodDJ.png" alt="Mood DJ banner" width="720">
-</p>
+
 
 </div>
 
