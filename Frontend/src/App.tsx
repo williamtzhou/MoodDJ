@@ -376,7 +376,14 @@ export default function App() {
             <div style={{ maxWidth: 980, margin: '0 auto', padding: '28px 16px', fontFamily: 'Inter, system-ui, sans-serif' }}>
                 {/* Centered title */}
                 <div style={{ textAlign: 'center', marginBottom: 18 }}>
-                    <h1 style={{ margin: 0, fontSize: 45 }}>🎭 Mood DJ 🎭</h1>
+                    <h1 style={{ margin: 0, fontSize: 45, display: 'inline-flex', alignItems: 'center', gap: 12 }}>
+                        <span>Mood DJ</span>
+                        <img
+                            src="Frontend/MoodDJ_Banner.png"
+                            alt="Mood DJ Banner"
+                            style={{ height: 48, width: 'auto', verticalAlign: 'middle' }}
+                        />
+                    </h1>
                     <div style={{ marginTop: 6, color: colors.textMuted, fontSize: 18 }}>by William Zhou</div>
                 </div>
 
