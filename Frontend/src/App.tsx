@@ -374,18 +374,28 @@ export default function App() {
     return (
         <div style={{ minHeight: '100vh', background: colors.bg, color: colors.text }}>
             <div style={{ maxWidth: 980, margin: '0 auto', padding: '28px 16px', fontFamily: 'Inter, system-ui, sans-serif' }}>
-                {/* Centered title */}
+                {/* Title */}
                 <div style={{ textAlign: 'center', marginBottom: 18 }}>
-                    <h1 style={{ margin: 0, fontSize: 45, display: 'inline-flex', alignItems: 'center', gap: 12 }}>
+                    <h1
+                        style={{
+                            margin: 0,
+                            fontSize: 45,
+                            lineHeight: 1,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 12,
+                        }}
+                    >
                         <span>Mood DJ</span>
                         <img
                             src="/MoodDJ_Banner.png"
                             alt="Mood DJ Banner"
-                            style={{ height: 64, width: 'auto', verticalAlign: 'middle' }}
+                            style={{ height: '1.5em', width: 'auto', verticalAlign: 'middle' }}
                         />
                     </h1>
                     <div style={{ marginTop: 6, color: colors.textMuted, fontSize: 18 }}>by William Zhou</div>
                 </div>
+
 
                 <section style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '16px' }}>
                     {/* Left column */}
@@ -444,10 +454,10 @@ export default function App() {
                                 );
                             })}
 
-                            {/* Calibration (visible while tracking) */}
+                            {/* Calibration */}
                             {tracking && (
                                 <>
-                                    {/* Force 3 buttons on a single row */}
+                                    {/* Mood Buttons */}
                                     <div
                                         style={{
                                             display: 'grid',
@@ -472,7 +482,7 @@ export default function App() {
 
                     {/* Right column */}
                     <div>
-                        {/* Controls row: keep Size / Every / Add per tick together */}
+                        {/* Controls row */}
                         <div style={{ marginTop: 6, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                             <div
                                 style={{

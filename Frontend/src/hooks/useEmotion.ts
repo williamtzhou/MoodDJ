@@ -197,25 +197,28 @@ function toScores(metrics: ReturnType<typeof extractMetrics>, calib: Calib): Sco
     const dOpen = mouthOpen - base.mouthOpen;
     const dEye = eyeOpen - base.eyeGap;
 
-    const TH_SMILE = 0.015;
-    const TH_OPEN = 0.015;
+    const TH_SMILE = 0.018;
+    const TH_OPEN = 0.018;
     const inNeutralBand = Math.abs(dSmile) < TH_SMILE && Math.abs(dOpen) < TH_OPEN;
 
     const zSmile = dSmile / TH_SMILE;
     const zOpen = dOpen / TH_OPEN;
-    let neutralRaw = Math.exp(-0.5 * (zSmile * zSmile * 0.7 + zOpen * zOpen * 0.7));
-    if (inNeutralBand) neutralRaw *= 1.25;
+    let neutralRaw = Math.exp(-0.5 * (zSmile * zSmile * 0.6 + zOpen * zOpen * 0.6));
+    if (inNeutralBand) neutralRaw *= 1.4;
 
     const S1 = 28;
     const S2 = 18;
     const sigmoid = (x: number) => 1 / (1 + Math.exp(-x));
 
-    const happyRaw = 0.75 * sigmoid(dSmile * S1) + 0.25 * sigmoid(dOpen * S2);
+    const happyRaw =
+        0.75 * sigmoid(dSmile * S1) +
+        0.25 * sigmoid(dOpen * S2) +
+        0.05 * sigmoid((-(dEye)) * 60);
 
     const sadRaw =
         0.7 * sigmoid(-dSmile * S1) +
-        0.2 * sigmoid((-(dOpen) + 0.002) * S2) +
-        0.1 * sigmoid((-(dEye) + 0.001) * 90);
+        0.2 * sigmoid((-(dOpen) + 0.003) * S2) +
+        0.1 * sigmoid((-(dEye) + 0.002) * 90);
 
     let h = happyRaw,
         n = neutralRaw,
@@ -226,9 +229,9 @@ function toScores(metrics: ReturnType<typeof extractMetrics>, calib: Calib): Sco
         s = t;
     }
 
-    const { a: H, b: N, c: S } = softmax3(h, n, s, 1.8);
+    const { a: H, b: N, c: S } = softmax3(h, n, s, 1.9);
 
-    const minNeutral = 0.08;
+    const minNeutral = 0.1;
     const adjN = Math.max(N, minNeutral);
     const renorm = H + adjN + S || 1;
 
