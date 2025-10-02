@@ -390,7 +390,7 @@ export default function App() {
                         <img
                             src="/MoodDJ_Banner.png"
                             alt="Mood DJ Banner"
-                            style={{ height: '1.5em', width: 'auto', transform: 'translateY(4px)'}}
+                            style={{ height: '1.5em', width: 'auto', transform: 'translateY(2px)'}}
                         />
                     </h1>
                     <div style={{ marginTop: 6, color: colors.textMuted, fontSize: 18 }}>by William Zhou</div>
