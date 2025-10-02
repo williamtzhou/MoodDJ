@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="Frontend/MoodDJ_Banner.png" alt="Mood DJ banner" width="360">
+  <img src="Frontend/public/MoodDJ_Banner.png" alt="Mood DJ banner" width="360">
 </p>
 
 <div align="center">
@@ -15,7 +15,7 @@ A facial recognition-powered music curator working through the Spotify API.
 ## **Features**
 - 📸 Collapsible camera feed and system status menu
 - 🎭 Self-tuning buttons to adapt to personalized facial expressions
-- 🕰️ stomizable playlist size, tick interval, and songs-per-tick values
+- 🕰️ Customizable playlist size, tick interval, and songs-per-tick values
 - 🛠️ Manual options to tweak the playlist
 - 📊 Live mood breakdown feed
 

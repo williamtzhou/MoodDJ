@@ -379,7 +379,7 @@ export default function App() {
                     <h1 style={{ margin: 0, fontSize: 45, display: 'inline-flex', alignItems: 'center', gap: 12 }}>
                         <span>Mood DJ</span>
                         <img
-                            src="Frontend/MoodDJ_Banner.png"
+                            src="/MoodDJ_Banner.png"
                             alt="Mood DJ Banner"
                             style={{ height: 48, width: 'auto', verticalAlign: 'middle' }}
                         />
