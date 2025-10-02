@@ -18,8 +18,9 @@ A facial landmark–driven music curator using MediaPipe FaceMesh, integrated wi
 - 📊 Live mood breakdown feed
 
 ## **Setup**
-1. Visit [mood-dj.vercel.app](https://mood-dj.vercel.app/).
+1. Visit [mood-dj.vercel.app](https://mood-dj.vercel.app/).  
    (If you are not immediately directed to the app and instead see a loading Render page or 502, the site should start up within approximately a minute; dont worry! Refreshing may help.)
+   (If you encounter "Failed to Create WebGL canvas context when passing video frame" error, please check to make sure your browser's hardware acceleration setting is turned on.)
 2. Click **Link Spotify**.
 3. Click **Not you?** (or open the app in Incognito instead)
 4. Choose **Continue with Google** (Use another account)  
@@ -42,6 +43,7 @@ A facial landmark–driven music curator using MediaPipe FaceMesh, integrated wi
 - More accurate mood recognition
 - Broader source base for songs
 - Song weight influence from user's personal music taste
+- Better and more user-informative error handling
 - Automated demo version login
 
 ## **Notes**
