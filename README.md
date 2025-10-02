@@ -25,14 +25,15 @@ A facial landmark–driven music curator using MediaPipe FaceMesh, integrated wi
    **Email:** mooddjtesting@gmail.com  
    **Password:** mooddjdemo  
    (This demo is restricted to a test account because of Spotify restrictions; view the Notes section if you're interested in personal use!)
-5. Click **Start Camera** (allow camera permissions).
-6. To personally calibrate, make a facial expression, then click the corresponding **Set Happy / Set Neutral / Set Sad** button.
-7. Click **Open MoodDJ on Spotify** or open the Spotify app to inspect the playlist.
-8. Tweak **Size** (playlist length), **Every** (interval in seconds between additions), and **Add per tick** (number of songs added each interval).
-9. Click **Fill / Replace Playlist** to fully recreate the playlist with new songs.
-10. Show or hide the **Preview** and **Status** panels to your liking.
-11. Stop the camera any time.
-12. Leave it running in the background while studying and enjoy live-curated music!
+5. Click **Agree**
+6. Click **Start Camera** (allow camera permissions).
+7. To personally calibrate, make a facial expression, then click the corresponding **Set Happy / Set Neutral / Set Sad** button.
+8. Click **Open MoodDJ on Spotify** or open the Spotify app to inspect the playlist.
+9. Tweak **Size** (playlist length), **Every** (interval in seconds between additions), and **Add per tick** (number of songs added each interval).
+10. Click **Fill / Replace Playlist** to fully recreate the playlist with new songs.
+11. Show or hide the **Preview** and **Status** panels to your liking.
+12. Stop the camera any time.
+13. Leave it running in the background while studying and enjoy live-curated music!
 
 ## **In Progress**
 - Localhost version for users to run freely on their own
