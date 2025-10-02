@@ -6,9 +6,7 @@
 
 # **Mood DJ — User Guide**
 
-A facial recognition-powered music curator working through the Spotify API.
-
-
+A facial landmark–driven music curator using MediaPipe FaceMesh, integrated with the Spotify API.
 
 </div>
 
@@ -22,18 +20,19 @@ A facial recognition-powered music curator working through the Spotify API.
 ## **Setup**
 1. Visit **mood-dj.vercel.app**.
 2. Click **Link Spotify**.
-3. Log in with Google (add account)  
+3. Click **Not you?** (or open the app in Incognito instead)
+4. Choose **Continue with Google** (Use another account)  
    **Email:** mooddjtesting@gmail.com  
    **Password:** mooddjdemo  
-   (This is just a demo, view the Notes section if you're interested in personal use!)
-4. Click **Start Camera** (allow camera permissions).
-5. To personally calibrate, make a facial expression, then click the corresponding **Set Happy / Set Neutral / Set Sad** button.
-6. Click **Open MoodDJ on Spotify** or open the Spotify app to inspect the playlist.
-7. Tweak **Size** (playlist length), **Every** (interval in seconds between additions), and **Add per tick** (number of songs added each interval).
-8. Click **Fill / Replace Playlist** to fully recreate the playlist with new songs.
-9. Show or hide the **Preview** and **Status** panels to your liking.
-10. Stop the camera any time.
-11. Leave it running in the background while studying and enjoy live-curated music.
+   (This demo is restricted to a test account because of Spotify restrictions; view the Notes section if you're interested in personal use!)
+5. Click **Start Camera** (allow camera permissions).
+6. To personally calibrate, make a facial expression, then click the corresponding **Set Happy / Set Neutral / Set Sad** button.
+7. Click **Open MoodDJ on Spotify** or open the Spotify app to inspect the playlist.
+8. Tweak **Size** (playlist length), **Every** (interval in seconds between additions), and **Add per tick** (number of songs added each interval).
+9. Click **Fill / Replace Playlist** to fully recreate the playlist with new songs.
+10. Show or hide the **Preview** and **Status** panels to your liking.
+11. Stop the camera any time.
+12. Leave it running in the background while studying and enjoy live-curated music!
 
 ## **In Progress**
 - Localhost version for users to run freely on their own
