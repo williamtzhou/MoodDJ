@@ -18,8 +18,8 @@ A facial landmark–driven music curator using MediaPipe FaceMesh, integrated wi
 - 📊 Live mood breakdown feed
 
 ## **Setup**
-1. Visit **mood-dj.vercel.app**.
-   (If you are not immediately directed to the app and instead see a loading Render page, the site should start up within approximately a minute; dont worry!)
+1. Visit [mood-dj.vercel.app](https://mood-dj.vercel.app/).
+   (If you are not immediately directed to the app and instead see a loading Render page or 502, the site should start up within approximately a minute; dont worry! Refreshing may help.)
 2. Click **Link Spotify**.
 3. Click **Not you?** (or open the app in Incognito instead)
 4. Choose **Continue with Google** (Use another account)  
