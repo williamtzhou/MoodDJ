@@ -327,9 +327,9 @@ export default function App() {
         btnBorder: '#374151',
         btnHover: '#263244',
         barTrack: '#2a2a32',
-        happy: '#f59e0b',
+        happy: '#fe5251',
         neutral: '#9ca3af',
-        sad: '#2563eb',
+        sad: '#3c8bd5',
     };
 
     // Global page background & margin fix
