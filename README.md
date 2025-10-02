@@ -19,6 +19,7 @@ A facial landmark–driven music curator using MediaPipe FaceMesh, integrated wi
 
 ## **Setup**
 1. Visit **mood-dj.vercel.app**.
+   (If you are not immediately directed to the app and instead see a loading Render page, the site should start up within approximately a minute; dont worry!)
 2. Click **Link Spotify**.
 3. Click **Not you?** (or open the app in Incognito instead)
 4. Choose **Continue with Google** (Use another account)  
@@ -40,10 +41,13 @@ A facial landmark–driven music curator using MediaPipe FaceMesh, integrated wi
 - More intuitive and visually appealing UI
 - More accurate mood recognition
 - Broader source base for songs
+- Song weight influence from user's personal music taste
 - Automated demo version login
 
 ## **Notes**
-- If you are not immediately directed to the app and instead see a loading Render page, the site should start up within approximately a minute; dont worry!
 - In May 2025, Spotify greatly limited indie developer capabilities: only large companies with very wide active user bases and revenue are allowed to access the extended API to release apps publicly. Everyone else is limited to 25 manually specified users at a time, which is why a test account is used here.  
   If you're interested in using Mood DJ regularly with your personal Spotify account, please email **williamtzhou@gmail.com** with your Spotify email and full name, and I will add you to the user list as soon as possible! This limitation is extremely frustrating and unfortunate; I encourage you to contact Spotify about it like I have!
 
+## **Feedback**
+- If you would like to suggest a personal favorite song of yours that you feel fits one of the moods, feel free to make a [song request](https://docs.google.com/forms/d/e/1FAIpQLSceqAudO6Z2ZNb7wbNTjyhtBOMv9roR3m2fGdlxkmO1AmK4FQ/viewform?usp=sharing&ouid=103233312580297337109). 
+- If you have encountered a bug while using this app, please let me know [here](https://docs.google.com/forms/d/e/1FAIpQLSdCczmU_n6qpOmxcMBLI_jfo4gXbO-JxDGnHcFny-DewwoxfQ/viewform?usp=sharing&ouid=103233312580297337109), and I will get it fixed as soon as possible!
