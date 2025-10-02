@@ -170,12 +170,24 @@ app.get('/health', (_req, res) => res.json({ ok: true, service: 'mood-dj-backend
  * Query: return_to (optional) final frontend origin.
  */
 app.get('/login', (req, res) => {
+    // Capture where to return after auth; default to configured FRONTEND_URL
+    const returnTo = String(req.query.return_to || FRONTEND_URL || '').replace(/\/$/, '');
+
+    // Encode state to carry return_to through Spotify to /callback
+    const statePayload = {
+        csrf: Math.random().toString(36).slice(2),
+        return_to: returnTo,
+    };
+    const state = Buffer.from(JSON.stringify(statePayload)).toString('base64url');
+
     const params = new URLSearchParams({
         response_type: 'code',
         client_id: SPOTIFY_CLIENT_ID,
         scope: 'user-read-email playlist-modify-public playlist-modify-private',
         redirect_uri: REDIRECT_URI,
-        state: Math.random().toString(36).slice(2),
+        state,
+        // Force consent screen so Spotify re-issues a refresh_token if the user had granted before.
+        show_dialog: 'true',
     });
     res.redirect(`https://accounts.spotify.com/authorize?${params.toString()}`);
 });
@@ -186,6 +198,18 @@ app.get('/login', (req, res) => {
 app.get('/callback', async (req, res) => {
     const code = req.query.code;
     if (!code) return res.status(400).send('Missing code');
+
+    // Recover return_to from state (if present), otherwise fall back to FRONTEND_URL
+    let return_to = (FRONTEND_URL || '').replace(/\/$/, '');
+    try {
+        const rawState = String(req.query.state || '');
+        if (rawState) {
+            const parsed = JSON.parse(Buffer.from(rawState, 'base64url').toString('utf8'));
+            if (parsed?.return_to) return_to = String(parsed.return_to).replace(/\/$/, '');
+        }
+    } catch {
+        // ignore malformed state; use FRONTEND_URL
+    }
 
     const body = new URLSearchParams({
         grant_type: 'authorization_code',
@@ -205,11 +229,10 @@ app.get('/callback', async (req, res) => {
 
     const payload = {
         access_token: data.access_token,
-        refresh_token: data.refresh_token,
+        refresh_token: data.refresh_token, // may be undefined if Spotify decides not to return; show_dialog=true helps
         expires_at: Date.now() + data.expires_in * 1000 - 10_000,
     };
 
-    const return_to = (req.query.return_to || FRONTEND_URL || '').replace(/\/$/, '');
     const sp = encodeURIComponent(JSON.stringify(payload));
     res.redirect(`${return_to}/#sp=${sp}`);
 });
@@ -362,6 +385,11 @@ app.post('/mood/tick', async (req, res) => {
     } catch (e) {
         res.status(500).json({ ok: false, error: String(e) });
     }
+});
+
+/** Optional convenience: frontends can call this before clearing local storage. */
+app.post('/disconnect', (_req, res) => {
+    res.json({ ok: true });
 });
 
 /** Starts HTTP server. */

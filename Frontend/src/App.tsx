@@ -316,6 +316,22 @@ export default function App() {
         });
     };
 
+    const disconnectSpotify = async () => {
+        try {
+            await fetch(`${BACKEND}/disconnect`, { method: 'POST' });
+        } catch { }
+
+        localStorage.removeItem(TOK_KEY);
+        setLinked(false);
+        setPlaylist(null);
+
+        const url = new URL(window.location.href);
+        url.hash = '';
+        url.searchParams.delete('linked');
+        window.history.replaceState({}, '', url.toString());
+    };
+
+
     // ====== Dark theme tokens & globals ======
     const colors = {
         bg: '#0b0b0f',
@@ -390,7 +406,7 @@ export default function App() {
                         <img
                             src="/MoodDJ_Banner.png"
                             alt="Mood DJ Banner"
-                            style={{ height: '1.5em', width: 'auto', transform: 'translateY(2px)'}}
+                            style={{ height: '1.5em', width: 'auto', transform: 'translateY(2px)' }}
                         />
                     </h1>
                     <div style={{ marginTop: 6, color: colors.textMuted, fontSize: 18 }}>by William Zhou</div>
@@ -570,7 +586,14 @@ export default function App() {
                             >
                                 {linked ? 'Link Spotify ✔' : 'Link Spotify'}
                             </button>
-
+                            <button
+                                style={buttonStyle}
+                                onClick={disconnectSpotify}
+                                disabled={!linked}
+                                title={!linked ? 'Not linked' : 'Clear saved Spotify tokens'}
+                            >
+                                Disconnect Spotify
+                            </button>
                             {playlist?.url && (
                                 <a
                                     href={playlist.url}
