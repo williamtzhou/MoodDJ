@@ -381,7 +381,7 @@ export default function App() {
                         <img
                             src="/MoodDJ_Banner.png"
                             alt="Mood DJ Banner"
-                            style={{ height: 48, width: 'auto', verticalAlign: 'middle' }}
+                            style={{ height: 64, width: 'auto', verticalAlign: 'middle' }}
                         />
                     </h1>
                     <div style={{ marginTop: 6, color: colors.textMuted, fontSize: 18 }}>by William Zhou</div>
