@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useEmotion, Mood } from './hooks/useEmotion';
+import { Analytics } from '@vercel/analytics/react';
 
 const BACKEND = (import.meta.env.VITE_BACKEND_URL || '').replace(/\/$/, '');
 
@@ -654,6 +655,7 @@ export default function App() {
                     Documentation
                 </a>
             </div>
+            <Analytics />
         </div>
     );
 }
