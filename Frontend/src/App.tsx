@@ -194,13 +194,13 @@ export default function App() {
             return;
         }
         const returnTo = encodeURIComponent(window.location.origin);
-        window.location.href = `${BACKEND}/login?return_to=${returnTo}`;
+        window.location.href = `/api/login?return_to=${returnTo}`;
     };
 
     useEffect(() => {
         const check = async () => {
             try {
-                const r = await fetch(`${BACKEND}/me`, { headers: authHeaders() });
+                const r = await fetch(`/api/user`, { headers: authHeaders() });
                 maybeUpdateTokensFromResponse(r);
                 setLinked(r.ok);
             } catch {
@@ -226,10 +226,10 @@ export default function App() {
     useEffect(() => {
         const load = async () => {
             try {
-                const me = await fetch(`${BACKEND}/me`, { headers: authHeaders() });
+                const me = await fetch(`/api/user`, { headers: authHeaders() });
                 maybeUpdateTokensFromResponse(me);
                 if (!me.ok) return;
-                const r = await fetch(`${BACKEND}/playlist`, { headers: authHeaders() });
+                const r = await fetch(`/api/playlist`, { headers: authHeaders() });
                 maybeUpdateTokensFromResponse(r);
                 if (r.ok) setPlaylist(await r.json());
             } catch { }
@@ -249,7 +249,7 @@ export default function App() {
             if (inFlightRef.current) return;
             inFlightRef.current = true;
             try {
-                const r = await fetch(`${BACKEND}/mood/tick`, {
+                const r = await fetch(`/api/mood/tick`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', ...authHeaders() },
                     body: JSON.stringify({ label: moodRef.current, keep: size, count: perTick }),
@@ -297,7 +297,7 @@ export default function App() {
             alert('Link Spotify first');
             return;
         }
-        await fetch(`${BACKEND}/mood`, {
+        await fetch(`/api/mood`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...authHeaders() },
             body: JSON.stringify({ label: moodRef.current, size }),
@@ -309,7 +309,7 @@ export default function App() {
             alert('Link Spotify first');
             return;
         }
-        await fetch(`${BACKEND}/mood/tick`, {
+        await fetch(`/api/mood/tick`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...authHeaders() },
             body: JSON.stringify({ label: moodRef.current, keep: size, count: 1 }),
@@ -318,7 +318,7 @@ export default function App() {
 
     const disconnectSpotify = async () => {
         try {
-            await fetch(`${BACKEND}/disconnect`, { method: 'POST' });
+            await fetch(`/api/disconnect`, { method: 'POST' });
         } catch { }
 
         localStorage.removeItem(TOK_KEY);
