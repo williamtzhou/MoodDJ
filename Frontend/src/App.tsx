@@ -200,7 +200,7 @@ export default function App() {
     useEffect(() => {
         const check = async () => {
             try {
-                const r = await fetch(`/api/user`, { headers: authHeaders() });
+                const r = await fetch(`/api/me`, { headers: authHeaders() });
                 maybeUpdateTokensFromResponse(r);
                 setLinked(r.ok);
             } catch {
@@ -226,7 +226,7 @@ export default function App() {
     useEffect(() => {
         const load = async () => {
             try {
-                const me = await fetch(`/api/user`, { headers: authHeaders() });
+                const me = await fetch(`/api/me`, { headers: authHeaders() });
                 maybeUpdateTokensFromResponse(me);
                 if (!me.ok) return;
                 const r = await fetch(`/api/playlist`, { headers: authHeaders() });
