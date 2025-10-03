@@ -304,7 +304,7 @@ async function getTrackUrisFromPlaylist(req, res, playlistId, max = 500) {
 }
 
 /** Returns current user identity. */
-app.get('/api/user', async (req, res) => {
+app.get('/api/me', async (req, res) => {
     try {
         const me = await spotify(req, res, '/me');
         res.json({ id: me.id, display_name: me.display_name });
